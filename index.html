@@ -49,7 +49,7 @@ const defaultState = {
   selectedWorker: null,
   currentAction: 'vacances',
   currentRestaurant: 'quinze-ous',
-  workers: [],
+  workers: [], // { id, nom, restaurant, dataInici, diesAnyAnterior }
   workerEvents: {},
   config: {
     'quinze-ous': {
@@ -80,11 +80,10 @@ const defaultState = {
 
 function App() {
   const [state, setState] = useState(() => {
-    const saved = localStorage.getItem('vacancesGrupQuinzeOus_v2');
+    const saved = localStorage.getItem('vacancesGrupQuinzeOus_v3');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Assegurar que config existeix per tots els restaurants
         if (!parsed.config) {
           parsed.config = defaultState.config;
         }
@@ -97,6 +96,14 @@ function App() {
             };
           }
         });
+        // Migrar treballadors antics
+        if (parsed.workers) {
+          parsed.workers = parsed.workers.map(w => ({
+            ...w,
+            dataInici: w.dataInici || null,
+            diesAnyAnterior: w.diesAnyAnterior || 0
+          }));
+        }
         return { ...defaultState, ...parsed };
       } catch (e) {
         return defaultState;
@@ -109,12 +116,12 @@ function App() {
   const [toast, setToast] = useState('');
   const [calendarView, setCalendarView] = useState('individual');
   const [selectedRestaurants, setSelectedRestaurants] = useState(['quinze-ous', 'quina-barra', 'malespina', 'caterings']);
+  const [editingWorker, setEditingWorker] = useState(null);
   
-  // Obtenir config del restaurant actual
   const currentConfig = state.config[state.currentRestaurant] || defaultState.config['quinze-ous'];
   
   useEffect(() => {
-    localStorage.setItem('vacancesGrupQuinzeOus_v2', JSON.stringify(state));
+    localStorage.setItem('vacancesGrupQuinzeOus_v3', JSON.stringify(state));
   }, [state]);
   
   const showToast = (msg) => {
@@ -145,13 +152,38 @@ function App() {
     return total;
   };
 
+  // Calcular dies proporcionals segons data inici
+  const calcularDiesProporcionals = (worker, diesConveni) => {
+    if (!worker.dataInici) return diesConveni;
+    
+    const anyActual = state.year;
+    const dataInici = new Date(worker.dataInici);
+    const anyInici = dataInici.getFullYear();
+    
+    // Si va començar abans d'aquest any, té tots els dies
+    if (anyInici < anyActual) return diesConveni;
+    
+    // Si va començar aquest any, calcular proporcional
+    if (anyInici === anyActual) {
+      const inicAny = new Date(anyActual, 0, 1);
+      const fiAny = new Date(anyActual, 11, 31);
+      const diesTotalsAny = Math.ceil((fiAny - inicAny) / (1000 * 60 * 60 * 24)) + 1;
+      const diesTreballats = Math.ceil((fiAny - dataInici) / (1000 * 60 * 60 * 24)) + 1;
+      const proporcio = diesTreballats / diesTotalsAny;
+      return Math.round(diesConveni * proporcio);
+    }
+    
+    // Si comença en el futur, 0 dies
+    return 0;
+  };
+
   const getWorkerStats = (workerId) => {
     const worker = state.workers.find(w => w.id === workerId);
-    if (!worker) return { diesConveni: 0, festiusTotals: 0, festiusTreballats: 0, vacancesEnFestiu: 0, totalDies: 0, tancamentDies: 0, vacances: 0, festiusRecuperats: 0, baixes: 0, pendents: 0 };
+    if (!worker) return { diesConveni: 0, diesProporcionals: 0, festiusTotals: 0, festiusTreballats: 0, vacancesEnFestiu: 0, totalDies: 0, tancamentDies: 0, vacances: 0, festiusRecuperats: 0, baixes: 0, pendents: 0, diesAnyAnterior: 0, recAnyAnterior: 0, pendentsAnyAnterior: 0 };
     
     const config = state.config[worker.restaurant] || currentConfig;
     const events = state.workerEvents[workerId] || {};
-    let vacances = 0, baixes = 0, festiusRecuperats = 0, vacancesEnFestiu = 0;
+    let vacances = 0, baixes = 0, festiusRecuperats = 0, vacancesEnFestiu = 0, recAnyAnterior = 0;
     const festiuDates = config.festius.filter(f => f.actiu).map(f => f.data);
 
     Object.entries(events).forEach(([date, type]) => {
@@ -164,22 +196,44 @@ function App() {
         if (festiuDates.includes(date)) vacancesEnFestiu++;
       } else if (type === 'festiu') {
         festiusRecuperats++;
+      } else if (type === 'recAnterior') {
+        recAnyAnterior++;
       }
     });
 
     const tancamentDies = countTancamentDays(worker.restaurant);
     const festiusTotals = config.festius.filter(f => f.actiu && isDiaLaborable(f.data)).length;
     const festiusTreballats = festiusTotals - vacancesEnFestiu;
-    const totalDies = config.diesConveni + festiusTreballats;
+    
+    const diesProporcionals = calcularDiesProporcionals(worker, config.diesConveni);
+    const totalDies = diesProporcionals + festiusTreballats;
     const diesAgafats = vacances + tancamentDies;
     const pendents = totalDies - diesAgafats - festiusRecuperats;
+    
+    const diesAnyAnterior = worker.diesAnyAnterior || 0;
+    const pendentsAnyAnterior = diesAnyAnterior - recAnyAnterior;
 
-    return { diesConveni: config.diesConveni, festiusTotals, festiusTreballats, vacancesEnFestiu, totalDies, tancamentDies, vacances, festiusRecuperats, baixes, pendents };
+    return { 
+      diesConveni: config.diesConveni, 
+      diesProporcionals,
+      festiusTotals, 
+      festiusTreballats, 
+      vacancesEnFestiu, 
+      totalDies, 
+      tancamentDies, 
+      vacances, 
+      festiusRecuperats, 
+      baixes, 
+      pendents,
+      diesAnyAnterior,
+      recAnyAnterior,
+      pendentsAnyAnterior
+    };
   };
 
   const exportToExcel = () => {
     let csv = 'RESUM VACANCES ' + state.year + '\n\n';
-    csv += 'Restaurant,Treballador,Dies Conveni,Festius Treballats,Total a Gaudir,Tancaments,Vacances,Baixes,Pendents\n';
+    csv += 'Restaurant,Treballador,Data Inici,Dies Conveni,Dies Proporcionals,Festius Treb.,Total,Tancaments,Vacances,Pendents,Dies Any Ant.,Rec. Any Ant.,Pend. Any Ant.\n';
     
     if (state.workers.length === 0) {
       csv += 'No hi ha treballadors\n';
@@ -188,7 +242,8 @@ function App() {
         const stats = getWorkerStats(w.id);
         const rest = RESTAURANTS.find(r => r.id === w.restaurant);
         const restNom = rest ? rest.nom : 'Sense restaurant';
-        csv += restNom + ',' + w.nom + ',' + stats.diesConveni + ',' + stats.festiusTreballats + ',' + stats.totalDies + ',' + stats.tancamentDies + ',' + stats.vacances + ',' + stats.baixes + ',' + stats.pendents + '\n';
+        const dataInici = w.dataInici || 'Abans 2026';
+        csv += restNom + ',' + w.nom + ',' + dataInici + ',' + stats.diesConveni + ',' + stats.diesProporcionals + ',' + stats.festiusTreballats + ',' + stats.totalDies + ',' + stats.tancamentDies + ',' + stats.vacances + ',' + stats.pendents + ',' + stats.diesAnyAnterior + ',' + stats.recAnyAnterior + ',' + stats.pendentsAnyAnterior + '\n';
       });
     }
     
@@ -207,7 +262,7 @@ function App() {
     const id = 'w_' + Date.now();
     setState(s => ({
       ...s,
-      workers: [...s.workers, { id, nom: newWorkerName.trim(), restaurant: s.currentRestaurant }],
+      workers: [...s.workers, { id, nom: newWorkerName.trim(), restaurant: s.currentRestaurant, dataInici: null, diesAnyAnterior: 0 }],
       workerEvents: { ...s.workerEvents, [id]: {} }
     }));
     setNewWorkerName('');
@@ -226,6 +281,14 @@ function App() {
         selectedWorker: s.selectedWorker === id ? null : s.selectedWorker
       };
     });
+    setEditingWorker(null);
+  };
+
+  const updateWorker = (id, field, value) => {
+    setState(s => ({
+      ...s,
+      workers: s.workers.map(w => w.id === id ? { ...w, [field]: value } : w)
+    }));
   };
 
   const getDayClass = (dateStr, dayOfWeek) => {
@@ -265,7 +328,7 @@ function App() {
   };
 
   const getWorkersOnDate = (dateStr) => {
-    const result = { vacances: [], baixa: [], festiu: [] };
+    const result = { vacances: [], baixa: [], festiu: [], recAnterior: [] };
     state.workers
       .filter(w => selectedRestaurants.includes(w.restaurant))
       .forEach(w => {
@@ -314,6 +377,7 @@ function App() {
       tancament: 'bg-red-500 text-white',
       vacances: 'bg-emerald-500 text-white',
       baixa: 'bg-purple-500 text-white',
+      recAnterior: 'bg-cyan-500 text-white',
       normal: 'text-zinc-200 hover:bg-zinc-600'
     };
     
@@ -408,6 +472,11 @@ function App() {
                     {workers.baixa.length > 0 && (
                       <div className="text-purple-400 truncate text-[9px]" title={workers.baixa.join(', ')}>
                         B:{workers.baixa.length}
+                      </div>
+                    )}
+                    {workers.recAnterior && workers.recAnterior.length > 0 && (
+                      <div className="text-cyan-400 truncate text-[9px]" title={workers.recAnterior.join(', ')}>
+                        R:{workers.recAnterior.length}
                       </div>
                     )}
                   </div>
@@ -507,6 +576,7 @@ function App() {
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-red-500" /> Tancament</div>
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-emerald-500" /> Vacances</div>
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-purple-500" /> Baixa</div>
+                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-cyan-500" /> Rec. any ant.</div>
               </div>
               <button 
                 onClick={exportToExcel}
@@ -642,7 +712,7 @@ function App() {
         )}
       </div>
       
-      <div className="w-64 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto flex-shrink-0">
+      <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto flex-shrink-0">
         {!state.selectedWorker ? (
           <div className="flex flex-col gap-4">
             <div className="text-center text-zinc-500 py-4">
@@ -670,27 +740,47 @@ function App() {
                 </div>
               </div>
             </div>
-            
-            <div className="bg-zinc-800 rounded-lg p-3">
-              <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-2">Instruccions</h3>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Selecciona un treballador de la llista per veure el seu resum i marcar vacances al calendari.
-              </p>
-            </div>
           </div>
         ) : (
           <>
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3 mb-4">
               <span className="font-semibold text-lg">{selectedWorkerData?.nom}</span>
-              <button onClick={() => deleteWorker(state.selectedWorker)} className="bg-red-500 px-2 py-1 rounded text-xs">Eliminar</button>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingWorker(editingWorker ? null : state.selectedWorker)} className="bg-zinc-700 px-2 py-1 rounded text-xs">Editar</button>
+                <button onClick={() => deleteWorker(state.selectedWorker)} className="bg-red-500 px-2 py-1 rounded text-xs">Eliminar</button>
+              </div>
             </div>
             
+            {editingWorker === state.selectedWorker && (
+              <div className="bg-zinc-800 rounded-lg p-3 mb-4 space-y-3">
+                <div>
+                  <label className="text-xs text-zinc-500">Data inici contracte</label>
+                  <input
+                    type="date"
+                    value={selectedWorkerData?.dataInici || ''}
+                    onChange={e => updateWorker(state.selectedWorker, 'dataInici', e.target.value || null)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm mt-1"
+                  />
+                  <p className="text-xs text-zinc-600 mt-1">Deixa buit si va comenar abans del {state.year}</p>
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-500">Dies pendents any anterior</label>
+                  <input
+                    type="number"
+                    value={selectedWorkerData?.diesAnyAnterior || 0}
+                    onChange={e => updateWorker(state.selectedWorker, 'diesAnyAnterior', parseInt(e.target.value) || 0)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm mt-1"
+                  />
+                </div>
+              </div>
+            )}
+            
             <div className="bg-zinc-800 rounded-lg p-4 mb-4">
-              <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Resum (dies laborables)</h3>
+              <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Resum {state.year}</h3>
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-zinc-900 rounded p-2 text-center">
-                  <div className="font-mono text-xl font-bold">{stats.diesConveni}</div>
-                  <div className="text-xs text-zinc-500">Conveni</div>
+                  <div className="font-mono text-xl font-bold">{stats.diesProporcionals}</div>
+                  <div className="text-xs text-zinc-500">Dies any</div>
                 </div>
                 <div className="bg-zinc-900 rounded p-2 text-center">
                   <div className="font-mono text-xl font-bold text-amber-400">+{stats.festiusTreballats}</div>
@@ -713,11 +803,34 @@ function App() {
                   <div className="text-xs text-zinc-500">Baixes</div>
                 </div>
               </div>
+              {stats.diesProporcionals < stats.diesConveni && (
+                <div className="mt-2 text-xs text-zinc-500 bg-zinc-900 rounded p-2">
+                  Proporcional: {stats.diesProporcionals} de {stats.diesConveni} dies
+                </div>
+              )}
               <div className="mt-4 pt-4 border-t border-zinc-700 text-center">
                 <div className={'font-mono text-3xl font-bold ' + (stats.pendents >= 0 ? 'text-green-400' : 'text-red-400')}>{stats.pendents}</div>
-                <div className="text-xs text-zinc-500">DIES PENDENTS</div>
+                <div className="text-xs text-zinc-500">DIES PENDENTS {state.year}</div>
               </div>
             </div>
+            
+            {(stats.diesAnyAnterior > 0 || stats.recAnyAnterior > 0) && (
+              <div className="bg-cyan-900/30 border border-cyan-800 rounded-lg p-3 mb-4">
+                <h3 className="text-xs uppercase text-cyan-400 tracking-wider mb-2">Any anterior</h3>
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Tenia:</span>
+                  <span className="font-mono">{stats.diesAnyAnterior}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Recuperats:</span>
+                  <span className="font-mono text-cyan-400">{stats.recAnyAnterior}</span>
+                </div>
+                <div className="flex justify-between text-sm font-medium mt-1 pt-1 border-t border-cyan-800">
+                  <span>Pendents:</span>
+                  <span className={'font-mono ' + (stats.pendentsAnyAnterior > 0 ? 'text-cyan-400' : 'text-green-400')}>{stats.pendentsAnyAnterior}</span>
+                </div>
+              </div>
+            )}
             
             <div className="bg-zinc-800 rounded-lg p-4">
               <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Accio al calendari</h3>
@@ -726,6 +839,7 @@ function App() {
                   { id: 'vacances', label: 'Vacances', color: 'border-green-400 bg-green-400/10 text-green-400' },
                   { id: 'baixa', label: 'Baixa', color: 'border-purple-400 bg-purple-400/10 text-purple-400' },
                   { id: 'festiu', label: 'Festiu rec.', color: 'border-amber-400 bg-amber-400/10 text-amber-400' },
+                  { id: 'recAnterior', label: 'Rec. any ant.', color: 'border-cyan-400 bg-cyan-400/10 text-cyan-400' },
                   { id: 'esborrar', label: 'Esborrar', color: 'border-red-400 bg-red-400/10 text-red-400' }
                 ].map(action => (
                   <button
