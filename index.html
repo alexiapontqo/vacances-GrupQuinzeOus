@@ -27,6 +27,9 @@ const RESTAURANTS = [
   { id: 'caterings', nom: 'Caterings', color: 'purple' }
 ];
 
+// DIES NATURALS - tots els dies compten, no només laborables
+const DIES_NATURALS = true;
+
 const defaultFestius = [
   { nom: "Any Nou", data: "2026-01-01", actiu: false },
   { nom: "Reis", data: "2026-01-06", actiu: true },
@@ -53,7 +56,7 @@ const defaultState = {
   workerEvents: {},
   config: {
     'quinze-ous': {
-      diesConveni: 22,
+      diesConveni: 31,
       tancaments: [
         { nom: "Setmana Febrer", inici: "2026-02-09", fi: "2026-02-15" },
         { nom: "Setmana Octubre", inici: "2026-10-05", fi: "2026-10-11" }
@@ -61,17 +64,17 @@ const defaultState = {
       festius: JSON.parse(JSON.stringify(defaultFestius))
     },
     'quina-barra': {
-      diesConveni: 22,
+      diesConveni: 31,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius))
     },
     'malespina': {
-      diesConveni: 22,
+      diesConveni: 31,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius))
     },
     'caterings': {
-      diesConveni: 22,
+      diesConveni: 31,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius))
     }
@@ -143,8 +146,7 @@ function App() {
         let current = new Date(t.inici);
         const end = new Date(t.fi);
         while (current <= end) {
-          const dateStr = current.toISOString().split('T')[0];
-          if (isDiaLaborable(dateStr)) total++;
+          total++;
           current.setDate(current.getDate() + 1);
         }
       }
@@ -187,7 +189,7 @@ function App() {
     const festiuDates = config.festius.filter(f => f.actiu).map(f => f.data);
 
     Object.entries(events).forEach(([date, type]) => {
-      if (!isDiaLaborable(date)) return;
+      // Tots els dies compten (dies naturals)
       if (type === 'vacances') {
         vacances++;
         if (festiuDates.includes(date)) vacancesEnFestiu++;
@@ -621,7 +623,7 @@ function App() {
             
             <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 mb-4">
               <h3 className="font-semibold mb-1">Dies de vacances per conveni</h3>
-              <p className="text-sm text-zinc-500 mb-3">Dies LABORABLES (Dt-Ds). Els 30 dies naturals = 22 laborables</p>
+              <p className="text-sm text-zinc-500 mb-3">Dies NATURALS (tots els dies compten)</p>
               <div className="flex items-center gap-3">
                 <input
                   type="number"
