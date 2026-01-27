@@ -27,42 +27,77 @@ const RESTAURANTS = [
   { id: 'caterings', nom: 'Caterings', color: 'purple' }
 ];
 
+const defaultFestius = [
+  { nom: "Any Nou", data: "2026-01-01", actiu: false },
+  { nom: "Reis", data: "2026-01-06", actiu: true },
+  { nom: "Divendres Sant", data: "2026-04-03", actiu: true },
+  { nom: "Dilluns Pasqua", data: "2026-04-06", actiu: false },
+  { nom: "Festa Treball", data: "2026-05-01", actiu: true },
+  { nom: "Sant Joan", data: "2026-06-24", actiu: true },
+  { nom: "Assumpcio", data: "2026-08-15", actiu: true },
+  { nom: "Diada", data: "2026-09-11", actiu: true },
+  { nom: "Festa Local 1", data: "2026-09-07", actiu: false },
+  { nom: "Festa Local 2", data: "2026-09-08", actiu: true },
+  { nom: "Hispanitat", data: "2026-10-12", actiu: false },
+  { nom: "Immaculada", data: "2026-12-08", actiu: true },
+  { nom: "Nadal", data: "2026-12-25", actiu: true },
+  { nom: "Sant Esteve", data: "2026-12-26", actiu: true }
+];
+
 const defaultState = {
   year: 2026,
-  diesConveni: 22,
   selectedWorker: null,
   currentAction: 'vacances',
   currentRestaurant: 'quinze-ous',
   workers: [],
-  tancaments: [
-    { nom: "Setmana Febrer", inici: "2026-02-09", fi: "2026-02-15" },
-    { nom: "Setmana Octubre", inici: "2026-10-05", fi: "2026-10-11" }
-  ],
-  festius: [
-    { nom: "Any Nou", data: "2026-01-01", actiu: false },
-    { nom: "Reis", data: "2026-01-06", actiu: true },
-    { nom: "Divendres Sant", data: "2026-04-03", actiu: true },
-    { nom: "Dilluns Pasqua", data: "2026-04-06", actiu: false },
-    { nom: "Festa Treball", data: "2026-05-01", actiu: true },
-    { nom: "Sant Joan", data: "2026-06-24", actiu: true },
-    { nom: "Assumpcio", data: "2026-08-15", actiu: true },
-    { nom: "Diada", data: "2026-09-11", actiu: true },
-    { nom: "Festa Local 1", data: "2026-09-07", actiu: false },
-    { nom: "Festa Local 2", data: "2026-09-08", actiu: true },
-    { nom: "Hispanitat", data: "2026-10-12", actiu: false },
-    { nom: "Immaculada", data: "2026-12-08", actiu: true },
-    { nom: "Nadal", data: "2026-12-25", actiu: true },
-    { nom: "Sant Esteve", data: "2026-12-26", actiu: true }
-  ],
-  workerEvents: {}
+  workerEvents: {},
+  config: {
+    'quinze-ous': {
+      diesConveni: 22,
+      tancaments: [
+        { nom: "Setmana Febrer", inici: "2026-02-09", fi: "2026-02-15" },
+        { nom: "Setmana Octubre", inici: "2026-10-05", fi: "2026-10-11" }
+      ],
+      festius: JSON.parse(JSON.stringify(defaultFestius))
+    },
+    'quina-barra': {
+      diesConveni: 22,
+      tancaments: [],
+      festius: JSON.parse(JSON.stringify(defaultFestius))
+    },
+    'malespina': {
+      diesConveni: 22,
+      tancaments: [],
+      festius: JSON.parse(JSON.stringify(defaultFestius))
+    },
+    'caterings': {
+      diesConveni: 22,
+      tancaments: [],
+      festius: JSON.parse(JSON.stringify(defaultFestius))
+    }
+  }
 };
 
 function App() {
   const [state, setState] = useState(() => {
-    const saved = localStorage.getItem('vacancesGrupQuinzeOus');
+    const saved = localStorage.getItem('vacancesGrupQuinzeOus_v2');
     if (saved) {
       try {
-        return { ...defaultState, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        // Assegurar que config existeix per tots els restaurants
+        if (!parsed.config) {
+          parsed.config = defaultState.config;
+        }
+        RESTAURANTS.forEach(r => {
+          if (!parsed.config[r.id]) {
+            parsed.config[r.id] = {
+              diesConveni: 22,
+              tancaments: [],
+              festius: JSON.parse(JSON.stringify(defaultFestius))
+            };
+          }
+        });
+        return { ...defaultState, ...parsed };
       } catch (e) {
         return defaultState;
       }
@@ -75,8 +110,11 @@ function App() {
   const [calendarView, setCalendarView] = useState('individual');
   const [selectedRestaurants, setSelectedRestaurants] = useState(['quinze-ous', 'quina-barra', 'malespina', 'caterings']);
   
+  // Obtenir config del restaurant actual
+  const currentConfig = state.config[state.currentRestaurant] || defaultState.config['quinze-ous'];
+  
   useEffect(() => {
-    localStorage.setItem('vacancesGrupQuinzeOus', JSON.stringify(state));
+    localStorage.setItem('vacancesGrupQuinzeOus_v2', JSON.stringify(state));
   }, [state]);
   
   const showToast = (msg) => {
@@ -90,9 +128,10 @@ function App() {
     return dayOfWeek >= 2 && dayOfWeek <= 6;
   };
 
-  const countTancamentDays = () => {
+  const countTancamentDays = (restaurantId) => {
+    const config = state.config[restaurantId] || currentConfig;
     let total = 0;
-    state.tancaments.forEach(t => {
+    config.tancaments.forEach(t => {
       if (t.inici && t.fi) {
         let current = new Date(t.inici);
         const end = new Date(t.fi);
@@ -107,9 +146,13 @@ function App() {
   };
 
   const getWorkerStats = (workerId) => {
+    const worker = state.workers.find(w => w.id === workerId);
+    if (!worker) return { diesConveni: 0, festiusTotals: 0, festiusTreballats: 0, vacancesEnFestiu: 0, totalDies: 0, tancamentDies: 0, vacances: 0, festiusRecuperats: 0, baixes: 0, pendents: 0 };
+    
+    const config = state.config[worker.restaurant] || currentConfig;
     const events = state.workerEvents[workerId] || {};
     let vacances = 0, baixes = 0, festiusRecuperats = 0, vacancesEnFestiu = 0;
-    const festiuDates = state.festius.filter(f => f.actiu).map(f => f.data);
+    const festiuDates = config.festius.filter(f => f.actiu).map(f => f.data);
 
     Object.entries(events).forEach(([date, type]) => {
       if (!isDiaLaborable(date)) return;
@@ -124,14 +167,14 @@ function App() {
       }
     });
 
-    const tancamentDies = countTancamentDays();
-    const festiusTotals = state.festius.filter(f => f.actiu && isDiaLaborable(f.data)).length;
+    const tancamentDies = countTancamentDays(worker.restaurant);
+    const festiusTotals = config.festius.filter(f => f.actiu && isDiaLaborable(f.data)).length;
     const festiusTreballats = festiusTotals - vacancesEnFestiu;
-    const totalDies = state.diesConveni + festiusTreballats;
+    const totalDies = config.diesConveni + festiusTreballats;
     const diesAgafats = vacances + tancamentDies;
     const pendents = totalDies - diesAgafats - festiusRecuperats;
 
-    return { diesConveni: state.diesConveni, festiusTotals, festiusTreballats, vacancesEnFestiu, totalDies, tancamentDies, vacances, festiusRecuperats, baixes, pendents };
+    return { diesConveni: config.diesConveni, festiusTotals, festiusTreballats, vacancesEnFestiu, totalDies, tancamentDies, vacances, festiusRecuperats, baixes, pendents };
   };
 
   const exportToExcel = () => {
@@ -190,11 +233,11 @@ function App() {
       const events = state.workerEvents[state.selectedWorker] || {};
       if (events[dateStr]) return events[dateStr];
     }
-    for (const t of state.tancaments) {
+    for (const t of currentConfig.tancaments) {
       if (t.inici && t.fi && dateStr >= t.inici && dateStr <= t.fi) return 'tancament';
     }
-    if (state.festius.find(f => f.data === dateStr && f.actiu)) return 'festiu';
-    if (state.festius.find(f => f.data === dateStr && !f.actiu)) return 'tancat';
+    if (currentConfig.festius.find(f => f.data === dateStr && f.actiu)) return 'festiu';
+    if (currentConfig.festius.find(f => f.data === dateStr && !f.actiu)) return 'tancat';
     if (dayOfWeek === 6 || dayOfWeek === 0) return 'tancat';
     return 'normal';
   };
@@ -204,7 +247,7 @@ function App() {
       showToast('Selecciona un treballador primer!');
       return;
     }
-    for (const t of state.tancaments) {
+    for (const t of currentConfig.tancaments) {
       if (t.inici && t.fi && dateStr >= t.inici && dateStr <= t.fi) {
         showToast('Aquest dia es de tancament obligatori');
         return;
@@ -232,6 +275,19 @@ function App() {
         }
       });
     return result;
+  };
+  
+  const updateConfig = (field, value) => {
+    setState(s => ({
+      ...s,
+      config: {
+        ...s.config,
+        [s.currentRestaurant]: {
+          ...s.config[s.currentRestaurant],
+          [field]: value
+        }
+      }
+    }));
   };
 
   const renderMonth = (month) => {
@@ -367,6 +423,7 @@ function App() {
   const selectedWorkerData = state.workers.find(w => w.id === state.selectedWorker);
   const stats = state.selectedWorker ? getWorkerStats(state.selectedWorker) : null;
   const filteredWorkers = state.workers.filter(w => w.restaurant === state.currentRestaurant);
+  const currentRestaurantName = RESTAURANTS.find(r => r.id === state.currentRestaurant)?.nom || '';
 
   return (
     <div className="min-h-screen bg-black text-white flex">
@@ -489,7 +546,8 @@ function App() {
           </>
         ) : (
           <>
-            <h1 className="text-2xl font-bold mb-6">Configuracio</h1>
+            <h1 className="text-2xl font-bold mb-2">Configuracio</h1>
+            <p className="text-zinc-500 mb-6">Restaurant: <span className="text-orange-400 font-medium">{currentRestaurantName}</span></p>
             
             <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 mb-4">
               <h3 className="font-semibold mb-1">Dies de vacances per conveni</h3>
@@ -497,8 +555,8 @@ function App() {
               <div className="flex items-center gap-3">
                 <input
                   type="number"
-                  value={state.diesConveni}
-                  onChange={e => setState(s => ({ ...s, diesConveni: parseInt(e.target.value) || 22 }))}
+                  value={currentConfig.diesConveni}
+                  onChange={e => updateConfig('diesConveni', parseInt(e.target.value) || 22)}
                   className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2"
                 />
                 <span className="text-zinc-500 text-sm">dies laborables / any</span>
@@ -508,15 +566,15 @@ function App() {
             <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 mb-4">
               <h3 className="font-semibold mb-1">Periodes de tancament obligatori</h3>
               <p className="text-sm text-zinc-500 mb-3">Es descompten automaticament de les vacances de tothom</p>
-              {state.tancaments.map((t, i) => (
+              {currentConfig.tancaments.map((t, i) => (
                 <div key={i} className="flex gap-2 mb-2 items-center">
                   <input
                     type="text"
                     value={t.nom}
                     onChange={e => {
-                      const newT = [...state.tancaments];
+                      const newT = [...currentConfig.tancaments];
                       newT[i].nom = e.target.value;
-                      setState(s => ({ ...s, tancaments: newT }));
+                      updateConfig('tancaments', newT);
                     }}
                     placeholder="Nom"
                     className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
@@ -525,9 +583,9 @@ function App() {
                     type="date"
                     value={t.inici}
                     onChange={e => {
-                      const newT = [...state.tancaments];
+                      const newT = [...currentConfig.tancaments];
                       newT[i].inici = e.target.value;
-                      setState(s => ({ ...s, tancaments: newT }));
+                      updateConfig('tancaments', newT);
                     }}
                     className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
                   />
@@ -535,20 +593,20 @@ function App() {
                     type="date"
                     value={t.fi}
                     onChange={e => {
-                      const newT = [...state.tancaments];
+                      const newT = [...currentConfig.tancaments];
                       newT[i].fi = e.target.value;
-                      setState(s => ({ ...s, tancaments: newT }));
+                      updateConfig('tancaments', newT);
                     }}
                     className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
                   />
                   <button
-                    onClick={() => setState(s => ({ ...s, tancaments: s.tancaments.filter((_, idx) => idx !== i) }))}
+                    onClick={() => updateConfig('tancaments', currentConfig.tancaments.filter((_, idx) => idx !== i))}
                     className="bg-red-500 px-3 py-2 rounded"
                   >X</button>
                 </div>
               ))}
               <button
-                onClick={() => setState(s => ({ ...s, tancaments: [...s.tancaments, { nom: '', inici: '', fi: '' }] }))}
+                onClick={() => updateConfig('tancaments', [...currentConfig.tancaments, { nom: '', inici: '', fi: '' }])}
                 className="mt-2 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded text-sm"
               >+ Afegir periode</button>
             </div>
@@ -557,7 +615,7 @@ function App() {
               <h3 className="font-semibold mb-1">Festius {state.year}</h3>
               <p className="text-sm text-zinc-500 mb-3">Activa els festius que treballeu</p>
               <div className="space-y-2">
-                {state.festius.map((f, i) => (
+                {currentConfig.festius.map((f, i) => (
                   <div key={i} className="flex justify-between items-center bg-zinc-800 rounded px-3 py-2">
                     <div>
                       <div className="text-sm">{f.nom}</div>
@@ -568,9 +626,9 @@ function App() {
                         type="checkbox"
                         checked={f.actiu}
                         onChange={() => {
-                          const newF = [...state.festius];
+                          const newF = [...currentConfig.festius];
                           newF[i].actiu = !newF[i].actiu;
-                          setState(s => ({ ...s, festius: newF }));
+                          updateConfig('festius', newF);
                         }}
                         className="sr-only peer"
                       />
@@ -596,19 +654,19 @@ function App() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Treballadors:</span>
-                  <span className="font-mono">{state.workers.length}</span>
+                  <span className="font-mono">{filteredWorkers.length}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Dies conveni:</span>
-                  <span className="font-mono">{state.diesConveni}</span>
+                  <span className="font-mono">{currentConfig.diesConveni}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Festius treballats:</span>
-                  <span className="font-mono text-amber-400">{state.festius.filter(f => f.actiu && isDiaLaborable(f.data)).length}</span>
+                  <span className="font-mono text-amber-400">{currentConfig.festius.filter(f => f.actiu && isDiaLaborable(f.data)).length}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Dies tancament:</span>
-                  <span className="font-mono text-red-400">{countTancamentDays()}</span>
+                  <span className="font-mono text-red-400">{countTancamentDays(state.currentRestaurant)}</span>
                 </div>
               </div>
             </div>
