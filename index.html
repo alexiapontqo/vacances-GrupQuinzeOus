@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ca">
 <head>
@@ -57,7 +56,7 @@ const defaultState = {
   workerEvents: {},
   config: {
     'quinze-ous': {
-      diesConveni: 31,
+      diesConveni: 23,
       tancaments: [
         { nom: "Setmana Febrer", inici: "2026-02-09", fi: "2026-02-15" },
         { nom: "Setmana Octubre", inici: "2026-10-05", fi: "2026-10-11" }
@@ -65,17 +64,17 @@ const defaultState = {
       festius: JSON.parse(JSON.stringify(defaultFestius))
     },
     'quina-barra': {
-      diesConveni: 31,
+      diesConveni: 23,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius))
     },
     'malespina': {
-      diesConveni: 31,
+      diesConveni: 23,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius))
     },
     'caterings': {
-      diesConveni: 31,
+      diesConveni: 23,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius))
     }
@@ -134,8 +133,11 @@ function App() {
   };
 
   const isDiaLaborable = (dateStr) => {
-    const date = new Date(dateStr);
+    // Parsejar la data manualment per evitar problemes de timezone
+    const parts = dateStr.split('-');
+    const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     const dayOfWeek = date.getDay();
+    // 0=Diumenge, 1=Dilluns (tancats), 2-6=Dimarts a Dissabte (oberts)
     return dayOfWeek >= 2 && dayOfWeek <= 6;
   };
 
@@ -147,7 +149,8 @@ function App() {
         let current = new Date(t.inici);
         const end = new Date(t.fi);
         while (current <= end) {
-          total++;
+          const dateStr = current.toISOString().split('T')[0];
+          if (isDiaLaborable(dateStr)) total++;
           current.setDate(current.getDate() + 1);
         }
       }
@@ -190,13 +193,15 @@ function App() {
     const festiuDates = config.festius.filter(f => f.actiu).map(f => f.data);
 
     Object.entries(events).forEach(([date, type]) => {
-      // Tots els dies compten (dies naturals)
+      // Només compten dies laborables (Dt-Ds)
+      if (!isDiaLaborable(date)) return;
+      
       if (type === 'vacances') {
         vacances++;
+        // Si fa vacances en un festiu treballat, no li compta com festiu a recuperar
         if (festiuDates.includes(date)) vacancesEnFestiu++;
       } else if (type === 'baixa') {
         baixes++;
-        if (festiuDates.includes(date)) vacancesEnFestiu++;
       } else if (type === 'festiu') {
         festiusRecuperats++;
       } else if (type === 'recAnterior') {
@@ -624,7 +629,7 @@ function App() {
             
             <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 mb-4">
               <h3 className="font-semibold mb-1">Dies de vacances per conveni</h3>
-              <p className="text-sm text-zinc-500 mb-3">Dies NATURALS (tots els dies compten)</p>
+              <p className="text-sm text-zinc-500 mb-3">Dies LABORABLES (Dt-Ds). 31 dies naturals = 23 laborables</p>
               <div className="flex items-center gap-3">
                 <input
                   type="number"
