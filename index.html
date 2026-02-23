@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestio Vacances - Grup Quinze Ous</title>
+    <title>Gestio Vacances i Horaris - Grup Quinze Ous</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; }
@@ -19,6 +19,8 @@
 const { useState, useEffect } = React;
 
 const MONTHS = ['Gener', 'Febrer', 'Marc', 'Abril', 'Maig', 'Juny', 'Juliol', 'Agost', 'Setembre', 'Octubre', 'Novembre', 'Desembre'];
+const DAYS_SHORT = ['Dl', 'Dt', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg'];
+const DAYS_FULL = ['Dilluns', 'Dimarts', 'Dimecres', 'Dijous', 'Divendres', 'Dissabte', 'Diumenge'];
 
 const RESTAURANTS = [
   { id: 'quinze-ous', nom: 'Quinze Ous', color: 'orange' },
@@ -44,14 +46,26 @@ const defaultFestius = [
   { nom: "Sant Esteve", data: "2026-12-26", actiu: true }
 ];
 
+// Horari base buit per cada dia de la setmana
+const defaultHorariBase = {
+  0: [], // Dilluns
+  1: [], // Dimarts
+  2: [], // Dimecres
+  3: [], // Dijous
+  4: [], // Divendres
+  5: [], // Dissabte
+  6: []  // Diumenge
+};
+
 const defaultState = {
   year: 2026,
   selectedWorker: null,
   currentAction: 'vacances',
   currentRestaurant: 'quinze-ous',
-  workers: [], // { id, nom, restaurant, dataInici, diesAnyAnterior }
-  // Events per any: { "2026": { "workerId": { "2026-01-15": "vacances" } } }
+  workers: [], // { id, nom, restaurant, dataInici, diesAnyAnterior, horariBase: {} }
   workerEventsByYear: {},
+  // Horaris específics per setmana: { "2026-W01": { "workerId": { "2026-01-06": [{inici: "10:00", fi: "15:00"}] } } }
+  horarisSetmanals: {},
   config: {
     'quinze-ous': {
       diesConveni: 23,
@@ -60,7 +74,7 @@ const defaultState = {
         { nom: "Setmana Octubre", inici: "2026-10-05", fi: "2026-10-11" }
       ],
       festius: JSON.parse(JSON.stringify(defaultFestius)),
-      oberturesExcepcionals: [] // { data: "2026-05-03", nom: "Obertura especial" }
+      oberturesExcepcionals: []
     },
     'quina-barra': {
       diesConveni: 23,
@@ -85,13 +99,21 @@ const defaultState = {
 
 function App() {
   const [state, setState] = useState(() => {
-    const saved = localStorage.getItem('vacancesGrupQuinzeOus_v4');
+    let saved = localStorage.getItem('vacancesGrupQuinzeOus_v5');
+    if (!saved) {
+      saved = localStorage.getItem('vacancesGrupQuinzeOus_v4');
+    }
+    if (!saved) {
+      saved = localStorage.getItem('vacancesGrupQuinzeOus_v3');
+    }
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        
         if (!parsed.config) {
-          parsed.config = defaultState.config;
+          parsed.config = JSON.parse(JSON.stringify(defaultState.config));
         }
+        
         RESTAURANTS.forEach(r => {
           if (!parsed.config[r.id]) {
             parsed.config[r.id] = {
@@ -104,42 +126,69 @@ function App() {
           if (!parsed.config[r.id].oberturesExcepcionals) {
             parsed.config[r.id].oberturesExcepcionals = [];
           }
+          if (!parsed.config[r.id].tancaments) {
+            parsed.config[r.id].tancaments = [];
+          }
+          if (!parsed.config[r.id].festius) {
+            parsed.config[r.id].festius = JSON.parse(JSON.stringify(defaultFestius));
+          }
         });
-        // Migrar workerEvents antic a workerEventsByYear
+        
         if (parsed.workerEvents && !parsed.workerEventsByYear) {
           parsed.workerEventsByYear = { "2026": parsed.workerEvents };
-          delete parsed.workerEvents;
         }
         if (!parsed.workerEventsByYear) {
           parsed.workerEventsByYear = {};
         }
-        // Migrar treballadors antics
+        delete parsed.workerEvents;
+        
+        if (!parsed.horarisSetmanals) {
+          parsed.horarisSetmanals = {};
+        }
+        
         if (parsed.workers) {
           parsed.workers = parsed.workers.map(w => ({
             ...w,
             dataInici: w.dataInici || null,
-            diesAnyAnterior: w.diesAnyAnterior || 0
+            diesAnyAnterior: w.diesAnyAnterior || 0,
+            horariBase: w.horariBase || JSON.parse(JSON.stringify(defaultHorariBase))
           }));
+        } else {
+          parsed.workers = [];
         }
-        return { ...defaultState, ...parsed };
+        
+        return { 
+          year: parsed.year || 2026,
+          selectedWorker: parsed.selectedWorker || null,
+          currentAction: parsed.currentAction || 'vacances',
+          currentRestaurant: parsed.currentRestaurant || 'quinze-ous',
+          workers: parsed.workers,
+          workerEventsByYear: parsed.workerEventsByYear,
+          horarisSetmanals: parsed.horarisSetmanals,
+          config: parsed.config
+        };
       } catch (e) {
+        console.error('Error carregant dades:', e);
         return defaultState;
       }
     }
     return defaultState;
   });
+  
   const [view, setView] = useState('calendar');
   const [newWorkerName, setNewWorkerName] = useState('');
   const [toast, setToast] = useState('');
   const [calendarView, setCalendarView] = useState('individual');
   const [selectedRestaurants, setSelectedRestaurants] = useState(['quinze-ous', 'quina-barra', 'malespina', 'caterings']);
   const [editingWorker, setEditingWorker] = useState(null);
+  const [editingHorari, setEditingHorari] = useState(false);
+  const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
   
   const currentConfig = state.config[state.currentRestaurant] || defaultState.config['quinze-ous'];
   const currentYearEvents = state.workerEventsByYear[state.year] || {};
   
   useEffect(() => {
-    localStorage.setItem('vacancesGrupQuinzeOus_v4', JSON.stringify(state));
+    localStorage.setItem('vacancesGrupQuinzeOus_v5', JSON.stringify(state));
   }, [state]);
   
   const showToast = (msg) => {
@@ -147,11 +196,40 @@ function App() {
     setTimeout(() => setToast(''), 2000);
   };
 
+  // Funcions de data
+  const getWeekDates = (offset = 0) => {
+    const today = new Date();
+    const currentDay = today.getDay();
+    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset + (offset * 7));
+    
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      dates.push(d);
+    }
+    return dates;
+  };
+
+  const formatDate = (date) => {
+    return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+  };
+
+  const getWeekKey = (date) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+    const week1 = new Date(d.getFullYear(), 0, 4);
+    const weekNum = 1 + Math.round(((d - week1) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+    return d.getFullYear() + '-W' + String(weekNum).padStart(2, '0');
+  };
+
   const isDiaLaborable = (dateStr) => {
     const parts = dateStr.split('-');
     const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     const dayOfWeek = date.getDay();
-    // 0=Diumenge, 1=Dilluns (tancats), 2-6=Dimarts a Dissabte (oberts)
     return dayOfWeek >= 2 && dayOfWeek <= 6;
   };
 
@@ -207,6 +285,11 @@ function App() {
     return 0;
   };
 
+  const getFestiuByDate = (dateStr, festius) => {
+    const mesDia = dateStr.substring(5);
+    return festius.find(f => f.data.substring(5) === mesDia);
+  };
+
   const getWorkerStats = (workerId) => {
     const worker = state.workers.find(w => w.id === workerId);
     if (!worker) return { diesConveni: 0, diesProporcionals: 0, festiusTotals: 0, festiusTreballats: 0, oberturesExc: 0, totalDies: 0, tancamentDies: 0, vacances: 0, festiusRecuperats: 0, baixes: 0, pendents: 0, diesAnyAnterior: 0, recAnyAnterior: 0, pendentsAnyAnterior: 0 };
@@ -214,16 +297,18 @@ function App() {
     const config = state.config[worker.restaurant] || currentConfig;
     const events = currentYearEvents[workerId] || {};
     let vacances = 0, baixes = 0, festiusRecuperats = 0, vacancesEnFestiu = 0, recAnyAnterior = 0;
-    const festiuDates = config.festius.filter(f => f.actiu).map(f => f.data);
+    
+    const festiuMesDia = config.festius.filter(f => f.actiu).map(f => f.data.substring(5));
 
     Object.entries(events).forEach(([date, type]) => {
-      // Només compten dies laborables (Dt-Ds) O obertures excepcionals
       const esLaborable = isDiaLaborable(date) || isOberturaExcepcional(date, worker.restaurant);
       if (!esLaborable) return;
       
+      const mesDia = date.substring(5);
+      
       if (type === 'vacances') {
         vacances++;
-        if (festiuDates.includes(date)) vacancesEnFestiu++;
+        if (festiuMesDia.includes(mesDia)) vacancesEnFestiu++;
       } else if (type === 'baixa') {
         baixes++;
       } else if (type === 'festiu') {
@@ -264,6 +349,64 @@ function App() {
     };
   };
 
+  // Funcions d'horaris
+  const getWorkerHorariForDate = (workerId, dateStr) => {
+    const worker = state.workers.find(w => w.id === workerId);
+    if (!worker) return [];
+    
+    const weekKey = getWeekKey(new Date(dateStr));
+    
+    // Primer mirar si hi ha horari específic per aquesta setmana
+    if (state.horarisSetmanals[weekKey]?.[workerId]?.[dateStr]) {
+      return state.horarisSetmanals[weekKey][workerId][dateStr];
+    }
+    
+    // Si no, usar horari base
+    const parts = dateStr.split('-');
+    const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    const dayOfWeek = (date.getDay() + 6) % 7; // 0=Dilluns, 6=Diumenge
+    
+    return worker.horariBase?.[dayOfWeek] || [];
+  };
+
+  const updateHorariBase = (workerId, dayIndex, horaris) => {
+    setState(s => ({
+      ...s,
+      workers: s.workers.map(w => {
+        if (w.id === workerId) {
+          const newHorariBase = { ...w.horariBase };
+          newHorariBase[dayIndex] = horaris;
+          return { ...w, horariBase: newHorariBase };
+        }
+        return w;
+      })
+    }));
+  };
+
+  const updateHorariSetmanal = (weekKey, workerId, dateStr, horaris) => {
+    setState(s => {
+      const newHorarisSetmanals = { ...s.horarisSetmanals };
+      if (!newHorarisSetmanals[weekKey]) {
+        newHorarisSetmanals[weekKey] = {};
+      }
+      if (!newHorarisSetmanals[weekKey][workerId]) {
+        newHorarisSetmanals[weekKey][workerId] = {};
+      }
+      newHorarisSetmanals[weekKey][workerId][dateStr] = horaris;
+      return { ...s, horarisSetmanals: newHorarisSetmanals };
+    });
+  };
+
+  const clearHorariSetmanal = (weekKey, workerId, dateStr) => {
+    setState(s => {
+      const newHorarisSetmanals = { ...s.horarisSetmanals };
+      if (newHorarisSetmanals[weekKey]?.[workerId]?.[dateStr]) {
+        delete newHorarisSetmanals[weekKey][workerId][dateStr];
+      }
+      return { ...s, horarisSetmanals: newHorarisSetmanals };
+    });
+  };
+
   const exportToExcel = () => {
     let csv = 'RESUM VACANCES ' + state.year + '\n\n';
     csv += 'Restaurant,Treballador,Data Inici,Dies Conveni,Dies Proporcionals,Festius Treb.,Obert. Exc.,Total,Tancaments,Vacances,Pendents,Dies Any Ant.,Rec. Any Ant.,Pend. Any Ant.\n';
@@ -295,7 +438,14 @@ function App() {
     const id = 'w_' + Date.now();
     setState(s => ({
       ...s,
-      workers: [...s.workers, { id, nom: newWorkerName.trim(), restaurant: s.currentRestaurant, dataInici: null, diesAnyAnterior: 0 }]
+      workers: [...s.workers, { 
+        id, 
+        nom: newWorkerName.trim(), 
+        restaurant: s.currentRestaurant, 
+        dataInici: null, 
+        diesAnyAnterior: 0,
+        horariBase: JSON.parse(JSON.stringify(defaultHorariBase))
+      }]
     }));
     setNewWorkerName('');
     showToast('Treballador afegit!');
@@ -318,6 +468,7 @@ function App() {
       };
     });
     setEditingWorker(null);
+    setEditingHorari(false);
   };
 
   const updateWorker = (id, field, value) => {
@@ -336,14 +487,16 @@ function App() {
       if (events[dateStr]) return events[dateStr];
     }
     
-    // Obertura excepcional
     if (isOberturaExcepcional(dateStr, restaurantId)) return 'obertura';
     
     for (const t of currentConfig.tancaments) {
       if (t.inici && t.fi && dateStr >= t.inici && dateStr <= t.fi) return 'tancament';
     }
-    if (currentConfig.festius.find(f => f.data === dateStr && f.actiu)) return 'festiu';
-    if (currentConfig.festius.find(f => f.data === dateStr && !f.actiu)) return 'tancat';
+    
+    const festiu = getFestiuByDate(dateStr, currentConfig.festius);
+    if (festiu && festiu.actiu) return 'festiu';
+    if (festiu && !festiu.actiu) return 'tancat';
+    
     if (dayOfWeek === 6 || dayOfWeek === 0) return 'tancat';
     return 'normal';
   };
@@ -357,7 +510,6 @@ function App() {
     const worker = state.workers.find(w => w.id === state.selectedWorker);
     const restaurantId = worker ? worker.restaurant : state.currentRestaurant;
     
-    // Comprovar si és tancament
     for (const t of currentConfig.tancaments) {
       if (t.inici && t.fi && dateStr >= t.inici && dateStr <= t.fi) {
         showToast('Aquest dia es de tancament obligatori');
@@ -365,7 +517,6 @@ function App() {
       }
     }
     
-    // Permetre marcar si és laborable O obertura excepcional
     const esLaborable = isDiaLaborable(dateStr) || isOberturaExcepcional(dateStr, restaurantId);
     if (!esLaborable && state.currentAction !== 'esborrar') {
       showToast('Aquest dia el restaurant esta tancat');
@@ -421,6 +572,52 @@ function App() {
     }));
   };
 
+  // Component per editar horaris d'un dia
+  const HorariDiaEditor = ({ horaris, onChange, label }) => {
+    const [newInici, setNewInici] = useState('');
+    const [newFi, setNewFi] = useState('');
+    
+    const addTorn = () => {
+      if (newInici && newFi) {
+        onChange([...horaris, { inici: newInici, fi: newFi }]);
+        setNewInici('');
+        setNewFi('');
+      }
+    };
+    
+    const removeTorn = (index) => {
+      onChange(horaris.filter((_, i) => i !== index));
+    };
+    
+    return (
+      <div className="space-y-2">
+        <div className="text-xs text-zinc-400 font-medium">{label}</div>
+        {horaris.map((torn, i) => (
+          <div key={i} className="flex items-center gap-2 bg-zinc-800 rounded px-2 py-1">
+            <span className="text-sm">{torn.inici} - {torn.fi}</span>
+            <button onClick={() => removeTorn(i)} className="text-red-400 text-xs ml-auto">X</button>
+          </div>
+        ))}
+        <div className="flex gap-1">
+          <input
+            type="time"
+            value={newInici}
+            onChange={e => setNewInici(e.target.value)}
+            className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs"
+          />
+          <input
+            type="time"
+            value={newFi}
+            onChange={e => setNewFi(e.target.value)}
+            className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs"
+          />
+          <button onClick={addTorn} className="bg-green-600 px-2 py-1 rounded text-xs">+</button>
+        </div>
+      </div>
+    );
+  };
+
+  // Renderitzar mes del calendari
   const renderMonth = (month) => {
     const year = state.year;
     const firstDay = new Date(year, month, 1);
@@ -561,6 +758,79 @@ function App() {
     );
   };
 
+  // Vista d'horaris setmanals
+  const renderHorarisView = () => {
+    const weekDates = getWeekDates(currentWeekOffset);
+    const weekKey = getWeekKey(weekDates[0]);
+    const filteredWorkers = state.workers.filter(w => w.restaurant === state.currentRestaurant);
+    
+    const firstDate = weekDates[0];
+    const lastDate = weekDates[6];
+    const weekLabel = `${firstDate.getDate()}/${firstDate.getMonth() + 1} - ${lastDate.getDate()}/${lastDate.getMonth() + 1}/${lastDate.getFullYear()}`;
+    
+    return (
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-bold">Horaris Setmanals</h1>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setCurrentWeekOffset(currentWeekOffset - 1)} className="w-8 h-8 rounded bg-zinc-800 border border-zinc-700">&lt;</button>
+            <span className="font-mono text-sm">{weekLabel}</span>
+            <button onClick={() => setCurrentWeekOffset(currentWeekOffset + 1)} className="w-8 h-8 rounded bg-zinc-800 border border-zinc-700">&gt;</button>
+            <button onClick={() => setCurrentWeekOffset(0)} className="bg-zinc-700 px-3 py-1 rounded text-sm">Avui</button>
+          </div>
+        </div>
+        
+        <div className="bg-zinc-900 rounded-lg overflow-hidden">
+          <div className="grid grid-cols-8 border-b border-zinc-700">
+            <div className="p-3 bg-zinc-800 font-medium text-sm">Treballador</div>
+            {weekDates.map((date, i) => (
+              <div key={i} className="p-3 bg-zinc-800 text-center border-l border-zinc-700">
+                <div className="font-medium text-sm">{DAYS_SHORT[i]}</div>
+                <div className="text-xs text-zinc-400">{date.getDate()}/{date.getMonth() + 1}</div>
+              </div>
+            ))}
+          </div>
+          
+          {filteredWorkers.length === 0 ? (
+            <div className="p-8 text-center text-zinc-500">No hi ha treballadors en aquest restaurant</div>
+          ) : (
+            filteredWorkers.map(worker => (
+              <div key={worker.id} className="grid grid-cols-8 border-b border-zinc-800">
+                <div className="p-3 bg-zinc-800/50 font-medium text-sm flex items-center">{worker.nom}</div>
+                {weekDates.map((date, i) => {
+                  const dateStr = formatDate(date);
+                  const horaris = getWorkerHorariForDate(worker.id, dateStr);
+                  const hasCustom = state.horarisSetmanals[weekKey]?.[worker.id]?.[dateStr];
+                  
+                  return (
+                    <div key={i} className={'p-2 border-l border-zinc-800 min-h-[60px] ' + (hasCustom ? 'bg-blue-900/20' : '')}>
+                      {horaris.length > 0 ? (
+                        <div className="space-y-1">
+                          {horaris.map((torn, ti) => (
+                            <div key={ti} className="text-xs bg-green-600/30 text-green-300 rounded px-1 py-0.5 text-center">
+                              {torn.inici}-{torn.fi}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-zinc-600 text-center">-</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </div>
+        
+        <div className="mt-4 text-sm text-zinc-500">
+          <span className="inline-block w-3 h-3 bg-blue-900/50 rounded mr-2"></span>
+          Horari modificat per aquesta setmana
+        </div>
+      </div>
+    );
+  };
+
   const selectedWorkerData = state.workers.find(w => w.id === state.selectedWorker);
   const stats = state.selectedWorker ? getWorkerStats(state.selectedWorker) : null;
   const filteredWorkers = state.workers.filter(w => w.restaurant === state.currentRestaurant);
@@ -568,6 +838,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-black text-white flex">
+      {/* Sidebar esquerra */}
       <div className="w-64 bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col gap-4">
         <select 
           value={state.currentRestaurant}
@@ -580,8 +851,9 @@ function App() {
         </select>
         
         <div className="flex gap-1 bg-zinc-800 p-1 rounded-lg">
-          <button onClick={() => setView('calendar')} className={'flex-1 py-2 px-3 rounded text-xs font-medium transition ' + (view === 'calendar' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Calendari</button>
-          <button onClick={() => setView('config')} className={'flex-1 py-2 px-3 rounded text-xs font-medium transition ' + (view === 'config' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Config</button>
+          <button onClick={() => setView('calendar')} className={'flex-1 py-2 px-2 rounded text-xs font-medium transition ' + (view === 'calendar' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Calendari</button>
+          <button onClick={() => setView('horaris')} className={'flex-1 py-2 px-2 rounded text-xs font-medium transition ' + (view === 'horaris' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Horaris</button>
+          <button onClick={() => setView('config')} className={'flex-1 py-2 px-2 rounded text-xs font-medium transition ' + (view === 'config' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Config</button>
         </div>
         
         <div className="flex-1 flex flex-col gap-2 overflow-hidden">
@@ -615,6 +887,7 @@ function App() {
         </div>
       </div>
       
+      {/* Contingut principal */}
       <div className="flex-1 p-6 overflow-y-auto">
         {view === 'calendar' ? (
           <>
@@ -687,6 +960,8 @@ function App() {
               )}
             </div>
           </>
+        ) : view === 'horaris' ? (
+          renderHorarisView()
         ) : (
           <>
             <h1 className="text-2xl font-bold mb-2">Configuracio {state.year}</h1>
@@ -823,11 +1098,12 @@ function App() {
         )}
       </div>
       
-      <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto flex-shrink-0">
+      {/* Sidebar dreta - Info treballador */}
+      <div className="w-80 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto flex-shrink-0">
         {!state.selectedWorker ? (
           <div className="flex flex-col gap-4">
             <div className="text-center text-zinc-500 py-4">
-              <p className="text-sm">Calendari base {state.year}</p>
+              <p className="text-sm">Selecciona un treballador</p>
             </div>
             
             <div className="bg-zinc-800 rounded-lg p-3">
@@ -861,8 +1137,9 @@ function App() {
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3 mb-4">
               <span className="font-semibold text-lg">{selectedWorkerData?.nom}</span>
               <div className="flex gap-2">
-                <button onClick={() => setEditingWorker(editingWorker ? null : state.selectedWorker)} className="bg-zinc-700 px-2 py-1 rounded text-xs">Editar</button>
-                <button onClick={() => deleteWorker(state.selectedWorker)} className="bg-red-500 px-2 py-1 rounded text-xs">Eliminar</button>
+                <button onClick={() => { setEditingWorker(editingWorker ? null : state.selectedWorker); setEditingHorari(false); }} className={'px-2 py-1 rounded text-xs ' + (editingWorker ? 'bg-orange-500' : 'bg-zinc-700')}>Dades</button>
+                <button onClick={() => { setEditingHorari(!editingHorari); setEditingWorker(null); }} className={'px-2 py-1 rounded text-xs ' + (editingHorari ? 'bg-orange-500' : 'bg-zinc-700')}>Horari</button>
+                <button onClick={() => deleteWorker(state.selectedWorker)} className="bg-red-500 px-2 py-1 rounded text-xs">X</button>
               </div>
             </div>
             
@@ -890,90 +1167,110 @@ function App() {
               </div>
             )}
             
-            <div className="bg-zinc-800 rounded-lg p-4 mb-4">
-              <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Resum {state.year}</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-zinc-900 rounded p-2 text-center">
-                  <div className="font-mono text-xl font-bold">{stats.diesProporcionals}</div>
-                  <div className="text-xs text-zinc-500">Dies any</div>
-                </div>
-                <div className="bg-zinc-900 rounded p-2 text-center">
-                  <div className="font-mono text-xl font-bold text-amber-400">+{stats.festiusTreballats}</div>
-                  <div className="text-xs text-zinc-500">Festius treb.</div>
-                </div>
-                {stats.oberturesExc > 0 && (
-                  <div className="bg-zinc-900 rounded p-2 text-center">
-                    <div className="font-mono text-xl font-bold text-pink-400">+{stats.oberturesExc}</div>
-                    <div className="text-xs text-zinc-500">Obert. exc.</div>
-                  </div>
-                )}
-                <div className="bg-zinc-900 rounded p-2 text-center">
-                  <div className="font-mono text-xl font-bold text-blue-400">{stats.totalDies}</div>
-                  <div className="text-xs text-zinc-500">Total a gaudir</div>
-                </div>
-                <div className="bg-zinc-900 rounded p-2 text-center">
-                  <div className="font-mono text-xl font-bold text-red-400">{stats.tancamentDies}</div>
-                  <div className="text-xs text-zinc-500">Tancaments</div>
-                </div>
-                <div className="bg-zinc-900 rounded p-2 text-center">
-                  <div className="font-mono text-xl font-bold text-green-400">{stats.vacances}</div>
-                  <div className="text-xs text-zinc-500">Vacances</div>
-                </div>
-                <div className="bg-zinc-900 rounded p-2 text-center">
-                  <div className="font-mono text-xl font-bold text-purple-400">{stats.baixes}</div>
-                  <div className="text-xs text-zinc-500">Baixes</div>
-                </div>
-              </div>
-              {stats.diesProporcionals < stats.diesConveni && (
-                <div className="mt-2 text-xs text-zinc-500 bg-zinc-900 rounded p-2">
-                  Proporcional: {stats.diesProporcionals} de {stats.diesConveni} dies
-                </div>
-              )}
-              <div className="mt-4 pt-4 border-t border-zinc-700 text-center">
-                <div className={'font-mono text-3xl font-bold ' + (stats.pendents >= 0 ? 'text-green-400' : 'text-red-400')}>{stats.pendents}</div>
-                <div className="text-xs text-zinc-500">DIES PENDENTS {state.year}</div>
-              </div>
-            </div>
-            
-            {(stats.diesAnyAnterior > 0 || stats.recAnyAnterior > 0) && (
-              <div className="bg-cyan-900/30 border border-cyan-800 rounded-lg p-3 mb-4">
-                <h3 className="text-xs uppercase text-cyan-400 tracking-wider mb-2">Any anterior</h3>
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Tenia:</span>
-                  <span className="font-mono">{stats.diesAnyAnterior}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Recuperats:</span>
-                  <span className="font-mono text-cyan-400">{stats.recAnyAnterior}</span>
-                </div>
-                <div className="flex justify-between text-sm font-medium mt-1 pt-1 border-t border-cyan-800">
-                  <span>Pendents:</span>
-                  <span className={'font-mono ' + (stats.pendentsAnyAnterior > 0 ? 'text-cyan-400' : 'text-green-400')}>{stats.pendentsAnyAnterior}</span>
+            {editingHorari && (
+              <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3 mb-4">
+                <h3 className="text-sm font-medium text-blue-300 mb-3">Horari Base Setmanal</h3>
+                <div className="space-y-3">
+                  {DAYS_FULL.map((day, i) => (
+                    <HorariDiaEditor
+                      key={i}
+                      label={day}
+                      horaris={selectedWorkerData?.horariBase?.[i] || []}
+                      onChange={(h) => updateHorariBase(state.selectedWorker, i, h)}
+                    />
+                  ))}
                 </div>
               </div>
             )}
             
-            <div className="bg-zinc-800 rounded-lg p-4">
-              <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Accio al calendari</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'vacances', label: 'Vacances', color: 'border-green-400 bg-green-400/10 text-green-400' },
-                  { id: 'baixa', label: 'Baixa', color: 'border-purple-400 bg-purple-400/10 text-purple-400' },
-                  { id: 'festiu', label: 'Festiu rec.', color: 'border-amber-400 bg-amber-400/10 text-amber-400' },
-                  { id: 'recAnterior', label: 'Rec. any ant.', color: 'border-cyan-400 bg-cyan-400/10 text-cyan-400' },
-                  { id: 'esborrar', label: 'Esborrar', color: 'border-red-400 bg-red-400/10 text-red-400' }
-                ].map(action => (
-                  <button
-                    key={action.id}
-                    onClick={() => setState(s => ({ ...s, currentAction: action.id }))}
-                    className={'p-2 rounded border-2 text-xs font-medium transition ' + (state.currentAction === action.id ? action.color : 'border-zinc-700 text-zinc-400')}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-zinc-500 mt-3">Clica els dies del calendari per marcar-los</p>
-            </div>
+            {!editingWorker && !editingHorari && (
+              <>
+                <div className="bg-zinc-800 rounded-lg p-4 mb-4">
+                  <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Resum {state.year}</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-zinc-900 rounded p-2 text-center">
+                      <div className="font-mono text-xl font-bold">{stats.diesProporcionals}</div>
+                      <div className="text-xs text-zinc-500">Dies any</div>
+                    </div>
+                    <div className="bg-zinc-900 rounded p-2 text-center">
+                      <div className="font-mono text-xl font-bold text-amber-400">+{stats.festiusTreballats}</div>
+                      <div className="text-xs text-zinc-500">Festius treb.</div>
+                    </div>
+                    {stats.oberturesExc > 0 && (
+                      <div className="bg-zinc-900 rounded p-2 text-center">
+                        <div className="font-mono text-xl font-bold text-pink-400">+{stats.oberturesExc}</div>
+                        <div className="text-xs text-zinc-500">Obert. exc.</div>
+                      </div>
+                    )}
+                    <div className="bg-zinc-900 rounded p-2 text-center">
+                      <div className="font-mono text-xl font-bold text-blue-400">{stats.totalDies}</div>
+                      <div className="text-xs text-zinc-500">Total a gaudir</div>
+                    </div>
+                    <div className="bg-zinc-900 rounded p-2 text-center">
+                      <div className="font-mono text-xl font-bold text-red-400">{stats.tancamentDies}</div>
+                      <div className="text-xs text-zinc-500">Tancaments</div>
+                    </div>
+                    <div className="bg-zinc-900 rounded p-2 text-center">
+                      <div className="font-mono text-xl font-bold text-green-400">{stats.vacances}</div>
+                      <div className="text-xs text-zinc-500">Vacances</div>
+                    </div>
+                    <div className="bg-zinc-900 rounded p-2 text-center">
+                      <div className="font-mono text-xl font-bold text-purple-400">{stats.baixes}</div>
+                      <div className="text-xs text-zinc-500">Baixes</div>
+                    </div>
+                  </div>
+                  {stats.diesProporcionals < stats.diesConveni && (
+                    <div className="mt-2 text-xs text-zinc-500 bg-zinc-900 rounded p-2">
+                      Proporcional: {stats.diesProporcionals} de {stats.diesConveni} dies
+                    </div>
+                  )}
+                  <div className="mt-4 pt-4 border-t border-zinc-700 text-center">
+                    <div className={'font-mono text-3xl font-bold ' + (stats.pendents >= 0 ? 'text-green-400' : 'text-red-400')}>{stats.pendents}</div>
+                    <div className="text-xs text-zinc-500">DIES PENDENTS {state.year}</div>
+                  </div>
+                </div>
+                
+                {(stats.diesAnyAnterior > 0 || stats.recAnyAnterior > 0) && (
+                  <div className="bg-cyan-900/30 border border-cyan-800 rounded-lg p-3 mb-4">
+                    <h3 className="text-xs uppercase text-cyan-400 tracking-wider mb-2">Any anterior</h3>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-zinc-400">Tenia:</span>
+                      <span className="font-mono">{stats.diesAnyAnterior}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-zinc-400">Recuperats:</span>
+                      <span className="font-mono text-cyan-400">{stats.recAnyAnterior}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-medium mt-1 pt-1 border-t border-cyan-800">
+                      <span>Pendents:</span>
+                      <span className={'font-mono ' + (stats.pendentsAnyAnterior > 0 ? 'text-cyan-400' : 'text-green-400')}>{stats.pendentsAnyAnterior}</span>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="bg-zinc-800 rounded-lg p-4">
+                  <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Accio al calendari</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'vacances', label: 'Vacances', color: 'border-green-400 bg-green-400/10 text-green-400' },
+                      { id: 'baixa', label: 'Baixa', color: 'border-purple-400 bg-purple-400/10 text-purple-400' },
+                      { id: 'festiu', label: 'Festiu rec.', color: 'border-amber-400 bg-amber-400/10 text-amber-400' },
+                      { id: 'recAnterior', label: 'Rec. any ant.', color: 'border-cyan-400 bg-cyan-400/10 text-cyan-400' },
+                      { id: 'esborrar', label: 'Esborrar', color: 'border-red-400 bg-red-400/10 text-red-400' }
+                    ].map(action => (
+                      <button
+                        key={action.id}
+                        onClick={() => setState(s => ({ ...s, currentAction: action.id }))}
+                        className={'p-2 rounded border-2 text-xs font-medium transition ' + (state.currentAction === action.id ? action.color : 'border-zinc-700 text-zinc-400')}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-3">Clica els dies del calendari per marcar-los</p>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
