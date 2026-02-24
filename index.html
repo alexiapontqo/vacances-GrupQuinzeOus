@@ -106,9 +106,29 @@ const defaultState = {
 
 function App() {
   const [state, setState] = useState(() => {
-    let saved = localStorage.getItem('vacancesGrupQuinzeOus_v5');
-    if (!saved) saved = localStorage.getItem('vacancesGrupQuinzeOus_v4');
-    if (!saved) saved = localStorage.getItem('vacancesGrupQuinzeOus_v3');
+    // Buscar dades a totes les versions possibles
+    const versions = ['vacancesGrupQuinzeOus_v5', 'vacancesGrupQuinzeOus_v4', 'vacancesGrupQuinzeOus_v3', 'vacancesGrupQuinzeOus_v2', 'vacancesGrupQuinzeOus'];
+    let saved = null;
+    let usedVersion = null;
+    
+    for (const version of versions) {
+      const data = localStorage.getItem(version);
+      if (data) {
+        try {
+          const parsed = JSON.parse(data);
+          // Verificar que té dades reals (treballadors o config)
+          if (parsed && (parsed.workers?.length > 0 || parsed.config)) {
+            saved = data;
+            usedVersion = version;
+            console.log('Dades carregades de:', version);
+            break;
+          }
+        } catch (e) {
+          console.log('Error parsing', version, e);
+        }
+      }
+    }
+    
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -1057,6 +1077,10 @@ function App() {
             {editingWorker === state.selectedWorker && (
               <div className="bg-zinc-800 rounded-lg p-3 mb-4 space-y-3">
                 <div>
+                  <label className="text-xs text-zinc-500">Nom del treballador</label>
+                  <input type="text" value={selectedWorkerData?.nom || ''} onChange={e => updateWorker(state.selectedWorker, 'nom', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm mt-1" />
+                </div>
+                <div>
                   <label className="text-xs text-zinc-500">Data inici contracte</label>
                   <input type="date" value={selectedWorkerData?.dataInici || ''} onChange={e => updateWorker(state.selectedWorker, 'dataInici', e.target.value || null)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm mt-1" />
                   <p className="text-xs text-zinc-600 mt-1">Deixa buit si va comenar abans del {state.year}</p>
@@ -1068,6 +1092,60 @@ function App() {
               </div>
             )}
             
+            {/* RESUM SEMPRE VISIBLE */}
+            <div className="bg-zinc-800 rounded-lg p-4 mb-4">
+              <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Resum {state.year}</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-zinc-900 rounded p-2 text-center">
+                  <div className="font-mono text-xl font-bold">{stats.diesProporcionals}</div>
+                  <div className="text-xs text-zinc-500">Dies any</div>
+                </div>
+                <div className="bg-zinc-900 rounded p-2 text-center">
+                  <div className="font-mono text-xl font-bold text-amber-400">+{stats.festiusTreballats}</div>
+                  <div className="text-xs text-zinc-500">Festius treb.</div>
+                </div>
+                {stats.oberturesExc > 0 && (
+                  <div className="bg-zinc-900 rounded p-2 text-center">
+                    <div className="font-mono text-xl font-bold text-pink-400">+{stats.oberturesExc}</div>
+                    <div className="text-xs text-zinc-500">Obert. exc.</div>
+                  </div>
+                )}
+                <div className="bg-zinc-900 rounded p-2 text-center">
+                  <div className="font-mono text-xl font-bold text-blue-400">{stats.totalDies}</div>
+                  <div className="text-xs text-zinc-500">Total a gaudir</div>
+                </div>
+                <div className="bg-zinc-900 rounded p-2 text-center">
+                  <div className="font-mono text-xl font-bold text-red-400">{stats.tancamentDies}</div>
+                  <div className="text-xs text-zinc-500">Tancaments</div>
+                </div>
+                <div className="bg-zinc-900 rounded p-2 text-center">
+                  <div className="font-mono text-xl font-bold text-green-400">{stats.vacances}</div>
+                  <div className="text-xs text-zinc-500">Vacances</div>
+                </div>
+                <div className="bg-zinc-900 rounded p-2 text-center">
+                  <div className="font-mono text-xl font-bold text-purple-400">{stats.baixes}</div>
+                  <div className="text-xs text-zinc-500">Baixes</div>
+                </div>
+              </div>
+              {stats.diesProporcionals < stats.diesConveni && (
+                <div className="mt-2 text-xs text-zinc-500 bg-zinc-900 rounded p-2">Proporcional: {stats.diesProporcionals} de {stats.diesConveni} dies</div>
+              )}
+              <div className="mt-4 pt-4 border-t border-zinc-700 text-center">
+                <div className={'font-mono text-3xl font-bold ' + (stats.pendents >= 0 ? 'text-green-400' : 'text-red-400')}>{stats.pendents}</div>
+                <div className="text-xs text-zinc-500">DIES PENDENTS {state.year}</div>
+              </div>
+            </div>
+            
+            {(stats.diesAnyAnterior > 0 || stats.recAnyAnterior > 0) && (
+              <div className="bg-cyan-900/30 border border-cyan-800 rounded-lg p-3 mb-4">
+                <h3 className="text-xs uppercase text-cyan-400 tracking-wider mb-2">Any anterior</h3>
+                <div className="flex justify-between text-sm"><span className="text-zinc-400">Tenia:</span><span className="font-mono">{stats.diesAnyAnterior}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-zinc-400">Recuperats:</span><span className="font-mono text-cyan-400">{stats.recAnyAnterior}</span></div>
+                <div className="flex justify-between text-sm font-medium mt-1 pt-1 border-t border-cyan-800"><span>Pendents:</span><span className={'font-mono ' + (stats.pendentsAnyAnterior > 0 ? 'text-cyan-400' : 'text-green-400')}>{stats.pendentsAnyAnterior}</span></div>
+              </div>
+            )}
+            
+            {/* HORARI I SOU - només quan cliques Horari */}
             {editingHorari && (
               <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3 mb-4">
                 <h3 className="text-sm font-medium text-blue-300 mb-3">Horari Base Setmanal</h3>
@@ -1120,76 +1198,23 @@ function App() {
               </div>
             )}
             
-            {!editingWorker && !editingHorari && (
-              <>
-                <div className="bg-zinc-800 rounded-lg p-4 mb-4">
-                  <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Resum {state.year}</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-zinc-900 rounded p-2 text-center">
-                      <div className="font-mono text-xl font-bold">{stats.diesProporcionals}</div>
-                      <div className="text-xs text-zinc-500">Dies any</div>
-                    </div>
-                    <div className="bg-zinc-900 rounded p-2 text-center">
-                      <div className="font-mono text-xl font-bold text-amber-400">+{stats.festiusTreballats}</div>
-                      <div className="text-xs text-zinc-500">Festius treb.</div>
-                    </div>
-                    {stats.oberturesExc > 0 && (
-                      <div className="bg-zinc-900 rounded p-2 text-center">
-                        <div className="font-mono text-xl font-bold text-pink-400">+{stats.oberturesExc}</div>
-                        <div className="text-xs text-zinc-500">Obert. exc.</div>
-                      </div>
-                    )}
-                    <div className="bg-zinc-900 rounded p-2 text-center">
-                      <div className="font-mono text-xl font-bold text-blue-400">{stats.totalDies}</div>
-                      <div className="text-xs text-zinc-500">Total a gaudir</div>
-                    </div>
-                    <div className="bg-zinc-900 rounded p-2 text-center">
-                      <div className="font-mono text-xl font-bold text-red-400">{stats.tancamentDies}</div>
-                      <div className="text-xs text-zinc-500">Tancaments</div>
-                    </div>
-                    <div className="bg-zinc-900 rounded p-2 text-center">
-                      <div className="font-mono text-xl font-bold text-green-400">{stats.vacances}</div>
-                      <div className="text-xs text-zinc-500">Vacances</div>
-                    </div>
-                    <div className="bg-zinc-900 rounded p-2 text-center">
-                      <div className="font-mono text-xl font-bold text-purple-400">{stats.baixes}</div>
-                      <div className="text-xs text-zinc-500">Baixes</div>
-                    </div>
-                  </div>
-                  {stats.diesProporcionals < stats.diesConveni && (
-                    <div className="mt-2 text-xs text-zinc-500 bg-zinc-900 rounded p-2">Proporcional: {stats.diesProporcionals} de {stats.diesConveni} dies</div>
-                  )}
-                  <div className="mt-4 pt-4 border-t border-zinc-700 text-center">
-                    <div className={'font-mono text-3xl font-bold ' + (stats.pendents >= 0 ? 'text-green-400' : 'text-red-400')}>{stats.pendents}</div>
-                    <div className="text-xs text-zinc-500">DIES PENDENTS {state.year}</div>
-                  </div>
+            {/* ACCIONS CALENDARI - només quan NO edites horari */}
+            {!editingHorari && (
+              <div className="bg-zinc-800 rounded-lg p-4">
+                <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Accio al calendari</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'vacances', label: 'Vacances', color: 'border-green-400 bg-green-400/10 text-green-400' },
+                    { id: 'baixa', label: 'Baixa', color: 'border-purple-400 bg-purple-400/10 text-purple-400' },
+                    { id: 'festiu', label: 'Festiu rec.', color: 'border-amber-400 bg-amber-400/10 text-amber-400' },
+                    { id: 'recAnterior', label: 'Rec. any ant.', color: 'border-cyan-400 bg-cyan-400/10 text-cyan-400' },
+                    { id: 'esborrar', label: 'Esborrar', color: 'border-red-400 bg-red-400/10 text-red-400' }
+                  ].map(action => (
+                    <button key={action.id} onClick={() => setState(s => ({ ...s, currentAction: action.id }))} className={'p-2 rounded border-2 text-xs font-medium transition ' + (state.currentAction === action.id ? action.color : 'border-zinc-700 text-zinc-400')}>{action.label}</button>
+                  ))}
                 </div>
-                
-                {(stats.diesAnyAnterior > 0 || stats.recAnyAnterior > 0) && (
-                  <div className="bg-cyan-900/30 border border-cyan-800 rounded-lg p-3 mb-4">
-                    <h3 className="text-xs uppercase text-cyan-400 tracking-wider mb-2">Any anterior</h3>
-                    <div className="flex justify-between text-sm"><span className="text-zinc-400">Tenia:</span><span className="font-mono">{stats.diesAnyAnterior}</span></div>
-                    <div className="flex justify-between text-sm"><span className="text-zinc-400">Recuperats:</span><span className="font-mono text-cyan-400">{stats.recAnyAnterior}</span></div>
-                    <div className="flex justify-between text-sm font-medium mt-1 pt-1 border-t border-cyan-800"><span>Pendents:</span><span className={'font-mono ' + (stats.pendentsAnyAnterior > 0 ? 'text-cyan-400' : 'text-green-400')}>{stats.pendentsAnyAnterior}</span></div>
-                  </div>
-                )}
-                
-                <div className="bg-zinc-800 rounded-lg p-4">
-                  <h3 className="text-xs uppercase text-zinc-500 tracking-wider mb-3">Accio al calendari</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { id: 'vacances', label: 'Vacances', color: 'border-green-400 bg-green-400/10 text-green-400' },
-                      { id: 'baixa', label: 'Baixa', color: 'border-purple-400 bg-purple-400/10 text-purple-400' },
-                      { id: 'festiu', label: 'Festiu rec.', color: 'border-amber-400 bg-amber-400/10 text-amber-400' },
-                      { id: 'recAnterior', label: 'Rec. any ant.', color: 'border-cyan-400 bg-cyan-400/10 text-cyan-400' },
-                      { id: 'esborrar', label: 'Esborrar', color: 'border-red-400 bg-red-400/10 text-red-400' }
-                    ].map(action => (
-                      <button key={action.id} onClick={() => setState(s => ({ ...s, currentAction: action.id }))} className={'p-2 rounded border-2 text-xs font-medium transition ' + (state.currentAction === action.id ? action.color : 'border-zinc-700 text-zinc-400')}>{action.label}</button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-3">Clica els dies del calendari per marcar-los</p>
-                </div>
-              </>
+                <p className="text-xs text-zinc-500 mt-3">Clica els dies del calendari per marcar-los</p>
+              </div>
             )}
           </>
         )}
