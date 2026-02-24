@@ -874,11 +874,11 @@ function App() {
             {weekDates.map((date, dayIndex) => {
               const dateStr = formatDate(date);
               return (
-                <div key={dayIndex} className="border-l border-zinc-800 first:border-l-0 min-h-[300px] relative bg-zinc-900">
-                  {/* Línies horàries de fons */}
-                  {[8,10,12,14,16,18,20,22,24].map(hora => (
-                    <div key={hora} className="absolute w-full border-t border-zinc-800/50" style={{ top: `${((hora - 8) / 16) * 100}%` }}>
-                      <span className="text-[9px] text-zinc-600 absolute -top-2 left-1">{hora}:00</span>
+                <div key={dayIndex} className="border-l border-zinc-800 first:border-l-0 h-[500px] relative bg-zinc-900">
+                  {/* Línies horàries de fons - de 6:00 a 02:00 (20 hores) */}
+                  {[6,8,10,12,14,16,18,20,22,24,26].map(hora => (
+                    <div key={hora} className="absolute w-full border-t border-zinc-800/50" style={{ top: `${((hora - 6) / 20) * 100}%` }}>
+                      <span className="text-[9px] text-zinc-600 absolute -top-2 left-1">{hora > 24 ? (hora - 24) + ':00' : hora + ':00'}</span>
                     </div>
                   ))}
                   
@@ -889,39 +889,47 @@ function App() {
                     const hasCustom = state.horarisSetmanals[weekKey]?.[worker.id]?.[dateStr];
                     
                     return horaris.map((torn, tornIndex) => {
-                      const topPercent = horaToPercent(torn.inici);
-                      const bottomPercent = horaToPercent(torn.fi);
-                      const height = bottomPercent - topPercent;
+                      // Convertir hora a minuts des de les 6:00
+                      const horaIniciToMins = (h) => {
+                        const [hh, mm] = h.split(':').map(Number);
+                        let mins = hh * 60 + mm;
+                        if (hh < 6) mins += 24 * 60; // Si és després de mitjanit
+                        return mins - 6 * 60; // Relatiu a les 6:00
+                      };
+                      
+                      const startMins = horaIniciToMins(torn.inici);
+                      let endMins = horaIniciToMins(torn.fi);
+                      if (endMins <= startMins) endMins += 24 * 60; // Si acaba després de mitjanit
+                      
+                      const totalMins = 20 * 60; // 20 hores (6:00 a 02:00)
+                      const topPercent = (startMins / totalMins) * 100;
+                      const height = ((endMins - startMins) / totalMins) * 100;
+                      
+                      // Calcular posició horitzontal segons nombre de treballadors
+                      const numWorkers = allWorkers.length;
+                      const barWidth = Math.min(90 / numWorkers, 15);
+                      const leftPos = 5 + (workerIndex * (90 / numWorkers));
                       
                       return (
                         <div
                           key={`${worker.id}-${tornIndex}`}
-                          onClick={() => setEditingCell({ workerId: worker.id, dateStr })}
-                          className={'absolute cursor-pointer rounded-sm text-[10px] flex items-center justify-center overflow-hidden border-l-2 ' + color.bg + ' ' + color.text + (hasCustom ? ' ring-2 ring-white/50' : '')}
+                          onClick={(e) => { e.stopPropagation(); setEditingCell({ workerId: worker.id, dateStr }); }}
+                          className={'absolute cursor-pointer rounded text-[9px] flex flex-col items-center justify-center overflow-hidden ' + color.bg + ' ' + color.text + (hasCustom ? ' ring-2 ring-white/50' : '')}
                           style={{
                             top: `${topPercent}%`,
-                            height: `${Math.max(height, 3)}%`,
-                            left: `${(workerIndex * 14) + 2}%`,
-                            width: '12%',
-                            minHeight: '20px'
+                            height: `${Math.max(height, 4)}%`,
+                            left: `${leftPos}%`,
+                            width: `${barWidth}%`,
+                            minHeight: '25px'
                           }}
                           title={`${worker.nom}: ${torn.inici}-${torn.fi}`}
                         >
-                          <span className="truncate px-0.5">{torn.inici.substring(0,5)}</span>
+                          <span className="font-bold">{torn.inici}</span>
+                          <span className="opacity-75">{torn.fi}</span>
                         </div>
                       );
                     });
                   })}
-                  
-                  {/* Zona clicable per afegir */}
-                  <div 
-                    className="absolute inset-0 cursor-pointer"
-                    onClick={() => {
-                      if (allWorkers.length > 0) {
-                        setEditingCell({ workerId: allWorkers[0].id, dateStr });
-                      }
-                    }}
-                  />
                 </div>
               );
             })}
