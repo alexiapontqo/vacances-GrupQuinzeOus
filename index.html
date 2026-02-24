@@ -216,7 +216,7 @@ function App() {
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
   const [editingCell, setEditingCell] = useState(null); // { workerId, dateStr }
   const [showAddWorkerToWeek, setShowAddWorkerToWeek] = useState(false);
-  const [weekWorkers, setWeekWorkers] = useState([]); // Treballadors afegits a la setmana
+  const [weekWorkers, setWeekWorkers] = useState([]); // Treballadors afegits a la setmana per aquest restaurant
   
   const currentConfig = state.config[state.currentRestaurant] || defaultState.config['quinze-ous'];
   const currentYearEvents = state.workerEventsByYear[state.year] || {};
@@ -225,13 +225,15 @@ function App() {
     localStorage.setItem('vacancesGrupQuinzeOus_v5', JSON.stringify(state));
   }, [state]);
   
-  // Actualitzar weekWorkers quan canvia la setmana
+  // Actualitzar weekWorkers quan canvia la setmana O el restaurant
   useEffect(() => {
     const weekDates = getWeekDates(currentWeekOffset);
     const weekKey = getWeekKey(weekDates[0]);
-    const savedWeekWorkers = state.horarisSetmanals[weekKey]?.__weekWorkers || [];
+    const restaurantKey = state.currentRestaurant;
+    // Guardem per restaurant: __weekWorkers_quinze-ous, __weekWorkers_quina-barra, etc.
+    const savedWeekWorkers = state.horarisSetmanals[weekKey]?.[`__weekWorkers_${restaurantKey}`] || [];
     setWeekWorkers(savedWeekWorkers);
-  }, [currentWeekOffset, state.currentRestaurant]);
+  }, [currentWeekOffset, state.currentRestaurant, state.horarisSetmanals]);
   
   const showToast = (msg) => {
     setToast(msg);
@@ -388,13 +390,28 @@ function App() {
     return { diesConveni: config.diesConveni, diesProporcionals, festiusTotals, festiusTreballats, oberturesExc, totalDies, tancamentDies, vacances, festiusRecuperats, baixes, pendents, diesAnyAnterior, recAnyAnterior, pendentsAnyAnterior };
   };
 
-  const getWorkerHorariForDate = (workerId, dateStr) => {
+  const getWorkerHorariForDate = (workerId, dateStr, forRestaurant = null) => {
     const worker = state.workers.find(w => w.id === workerId);
     if (!worker) return [];
     const weekKey = getWeekKey(new Date(dateStr));
+    const restaurantToCheck = forRestaurant || state.currentRestaurant;
+    
+    // Si el treballador és d'un altre restaurant (és un extra), buscar horari específic per aquest restaurant
+    if (worker.restaurant !== restaurantToCheck) {
+      // Buscar horari específic guardat per aquest extra en aquest restaurant
+      const extraKey = `${workerId}_extra_${restaurantToCheck}`;
+      if (state.horarisSetmanals[weekKey]?.[extraKey]?.[dateStr]) {
+        return state.horarisSetmanals[weekKey][extraKey][dateStr];
+      }
+      // Si no té horari específic, retornar buit (l'extra no té horari base aquí)
+      return [];
+    }
+    
+    // Treballador del propi restaurant - mirar si té horari específic aquesta setmana
     if (state.horarisSetmanals[weekKey]?.[workerId]?.[dateStr]) {
       return state.horarisSetmanals[weekKey][workerId][dateStr];
     }
+    // Si no, usar horari base
     const parts = dateStr.split('-');
     const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     const dayOfWeek = (date.getDay() + 6) % 7;
@@ -416,11 +433,16 @@ function App() {
   };
 
   const updateHorariSetmanal = (weekKey, workerId, dateStr, horaris) => {
+    const worker = state.workers.find(w => w.id === workerId);
+    const isExtra = worker && worker.restaurant !== state.currentRestaurant;
+    // Si és un extra, guardar amb clau específica per restaurant
+    const storageKey = isExtra ? `${workerId}_extra_${state.currentRestaurant}` : workerId;
+    
     setState(s => {
       const newHorarisSetmanals = { ...s.horarisSetmanals };
       if (!newHorarisSetmanals[weekKey]) newHorarisSetmanals[weekKey] = {};
-      if (!newHorarisSetmanals[weekKey][workerId]) newHorarisSetmanals[weekKey][workerId] = {};
-      newHorarisSetmanals[weekKey][workerId][dateStr] = horaris;
+      if (!newHorarisSetmanals[weekKey][storageKey]) newHorarisSetmanals[weekKey][storageKey] = {};
+      newHorarisSetmanals[weekKey][storageKey][dateStr] = horaris;
       return { ...s, horarisSetmanals: newHorarisSetmanals };
     });
   };
@@ -428,12 +450,13 @@ function App() {
   const addWorkerToWeek = (workerId) => {
     const weekDates = getWeekDates(currentWeekOffset);
     const weekKey = getWeekKey(weekDates[0]);
+    const restaurantKey = state.currentRestaurant;
     const newWeekWorkers = [...weekWorkers, workerId];
     setWeekWorkers(newWeekWorkers);
     setState(s => {
       const newHorarisSetmanals = { ...s.horarisSetmanals };
       if (!newHorarisSetmanals[weekKey]) newHorarisSetmanals[weekKey] = {};
-      newHorarisSetmanals[weekKey].__weekWorkers = newWeekWorkers;
+      newHorarisSetmanals[weekKey][`__weekWorkers_${restaurantKey}`] = newWeekWorkers;
       return { ...s, horarisSetmanals: newHorarisSetmanals };
     });
     setShowAddWorkerToWeek(false);
@@ -442,13 +465,20 @@ function App() {
   const removeWorkerFromWeek = (workerId) => {
     const weekDates = getWeekDates(currentWeekOffset);
     const weekKey = getWeekKey(weekDates[0]);
+    const restaurantKey = state.currentRestaurant;
     const newWeekWorkers = weekWorkers.filter(id => id !== workerId);
     setWeekWorkers(newWeekWorkers);
     setState(s => {
       const newHorarisSetmanals = { ...s.horarisSetmanals };
       if (newHorarisSetmanals[weekKey]) {
-        newHorarisSetmanals[weekKey].__weekWorkers = newWeekWorkers;
-        delete newHorarisSetmanals[weekKey][workerId];
+        newHorarisSetmanals[weekKey][`__weekWorkers_${restaurantKey}`] = newWeekWorkers;
+        // Esborrar els horaris d'aquest treballador per aquest restaurant
+        const workerHorariKey = `${workerId}_${restaurantKey}`;
+        Object.keys(newHorarisSetmanals[weekKey]).forEach(key => {
+          if (key.startsWith(workerId) && !key.startsWith('__')) {
+            delete newHorarisSetmanals[weekKey][key];
+          }
+        });
       }
       return { ...s, horarisSetmanals: newHorarisSetmanals };
     });
@@ -585,6 +615,8 @@ function App() {
   // Component editor de cel·la d'horari
   const CellEditor = ({ workerId, dateStr, onClose }) => {
     const weekKey = getWeekKey(new Date(dateStr));
+    const worker = state.workers.find(w => w.id === workerId);
+    const isExtra = worker && worker.restaurant !== state.currentRestaurant;
     const currentHoraris = getWorkerHorariForDate(workerId, dateStr);
     const [horaris, setHoraris] = useState(currentHoraris);
     const [newInici, setNewInici] = useState('');
@@ -610,22 +642,26 @@ function App() {
 
     const reset = () => {
       // Esborrar horari específic per usar el base
+      const storageKey = isExtra ? `${workerId}_extra_${state.currentRestaurant}` : workerId;
       setState(s => {
         const newHorarisSetmanals = { ...s.horarisSetmanals };
-        if (newHorarisSetmanals[weekKey]?.[workerId]?.[dateStr]) {
-          delete newHorarisSetmanals[weekKey][workerId][dateStr];
+        if (newHorarisSetmanals[weekKey]?.[storageKey]?.[dateStr]) {
+          delete newHorarisSetmanals[weekKey][storageKey][dateStr];
         }
         return { ...s, horarisSetmanals: newHorarisSetmanals };
       });
       onClose();
-      showToast('Horari reset a base!');
+      showToast('Horari reset!');
     };
 
     return (
       <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={onClose}>
         <div className="bg-zinc-800 rounded-lg p-4 w-80" onClick={e => e.stopPropagation()}>
           <h3 className="font-semibold mb-3">Editar horari</h3>
-          <p className="text-sm text-zinc-400 mb-3">{state.workers.find(w => w.id === workerId)?.nom} - {dateStr}</p>
+          <p className="text-sm text-zinc-400 mb-3">
+            {worker?.nom} - {dateStr}
+            {isExtra && <span className="text-yellow-400 ml-2">(Extra)</span>}
+          </p>
           
           <div className="space-y-2 mb-3">
             {horaris.map((torn, i) => (
@@ -898,7 +934,9 @@ function App() {
                   {allWorkers.map((worker, workerIndex) => {
                     const horaris = getWorkerHorariForDate(worker.id, dateStr);
                     const color = getWorkerColor(workerIndex);
-                    const hasCustom = state.horarisSetmanals[weekKey]?.[worker.id]?.[dateStr];
+                    const isExtra = worker.restaurant !== state.currentRestaurant;
+                    const storageKey = isExtra ? `${worker.id}_extra_${state.currentRestaurant}` : worker.id;
+                    const hasCustom = state.horarisSetmanals[weekKey]?.[storageKey]?.[dateStr];
                     
                     return horaris.map((torn, tornIndex) => {
                       // Convertir hora a minuts des de les 6:00
@@ -1001,7 +1039,8 @@ function App() {
                             {weekDates.map((date, i) => {
                               const dateStr = formatDate(date);
                               const horaris = getWorkerHorariForDate(worker.id, dateStr);
-                              const hasCustom = state.horarisSetmanals[weekKey]?.[worker.id]?.[dateStr];
+                              const storageKeyForCheck = isFromOtherRestaurant ? `${worker.id}_extra_${state.currentRestaurant}` : worker.id;
+                              const hasCustom = state.horarisSetmanals[weekKey]?.[storageKeyForCheck]?.[dateStr];
                               return (
                                 <div 
                                   key={i} 
