@@ -132,7 +132,10 @@ function App() {
             ...w,
             dataInici: w.dataInici || null,
             diesAnyAnterior: w.diesAnyAnterior || 0,
-            horariBase: w.horariBase || JSON.parse(JSON.stringify(defaultHorariBase))
+            horariBase: w.horariBase || JSON.parse(JSON.stringify(defaultHorariBase)),
+            souBrut: w.souBrut || 0,
+            souNet: w.souNet || 0,
+            extraB: w.extraB || 0
           }));
         } else {
           parsed.workers = [];
@@ -436,7 +439,7 @@ function App() {
     const id = 'w_' + Date.now();
     setState(s => ({
       ...s,
-      workers: [...s.workers, { id, nom: newWorkerName.trim(), restaurant: s.currentRestaurant, dataInici: null, diesAnyAnterior: 0, horariBase: JSON.parse(JSON.stringify(defaultHorariBase)) }]
+      workers: [...s.workers, { id, nom: newWorkerName.trim(), restaurant: s.currentRestaurant, dataInici: null, diesAnyAnterior: 0, horariBase: JSON.parse(JSON.stringify(defaultHorariBase)), souBrut: 0, souNet: 0, extraB: 0 }]
     }));
     setNewWorkerName('');
     showToast('Treballador afegit!');
@@ -1077,6 +1080,41 @@ function App() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-blue-300">Total hores setmanals:</span>
                     <span className="text-xl font-bold text-blue-400">{horesSetmanalsBase.toFixed(1)}h</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {editingHorari && (
+              <div className="bg-emerald-900/30 border border-emerald-800 rounded-lg p-3 mb-4">
+                <h3 className="text-sm font-medium text-emerald-300 mb-3">Informació Salarial</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-zinc-400">Sou Brut (contracte)</label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input type="number" step="0.01" value={selectedWorkerData?.souBrut || ''} onChange={e => updateWorker(state.selectedWorker, 'souBrut', parseFloat(e.target.value) || 0)} placeholder="0.00" className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+                      <span className="text-zinc-500">€</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-400">Sou Net (nòmina)</label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input type="number" step="0.01" value={selectedWorkerData?.souNet || ''} onChange={e => updateWorker(state.selectedWorker, 'souNet', parseFloat(e.target.value) || 0)} placeholder="0.00" className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+                      <span className="text-zinc-500">€</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-400">Extra B (en mà)</label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input type="number" step="0.01" value={selectedWorkerData?.extraB || ''} onChange={e => updateWorker(state.selectedWorker, 'extraB', parseFloat(e.target.value) || 0)} placeholder="0.00" className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+                      <span className="text-zinc-500">€</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-emerald-800">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-emerald-300">Sou Total:</span>
+                      <span className="text-xl font-bold text-emerald-400">{((selectedWorkerData?.souNet || 0) + (selectedWorkerData?.extraB || 0)).toFixed(2)}€</span>
+                    </div>
                   </div>
                 </div>
               </div>
