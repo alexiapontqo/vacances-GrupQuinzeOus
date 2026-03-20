@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestio Vacances i Horaris - Grup Quinze Ous</title>
+    <title>Gestio Vacances - Grup Quinze Ous</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; }
@@ -37,21 +37,6 @@ const { useState, useEffect } = React;
 
 const MONTHS = ['Gener', 'Febrer', 'Marc', 'Abril', 'Maig', 'Juny', 'Juliol', 'Agost', 'Setembre', 'Octubre', 'Novembre', 'Desembre'];
 const DAYS_SHORT = ['Dl', 'Dt', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg'];
-const DAYS_FULL = ['Dilluns', 'Dimarts', 'Dimecres', 'Dijous', 'Divendres', 'Dissabte', 'Diumenge'];
-
-// Colors per assignar als treballadors
-const WORKER_COLORS = [
-  { bg: 'bg-blue-500', text: 'text-white', light: 'bg-blue-500/30' },
-  { bg: 'bg-green-500', text: 'text-white', light: 'bg-green-500/30' },
-  { bg: 'bg-purple-500', text: 'text-white', light: 'bg-purple-500/30' },
-  { bg: 'bg-pink-500', text: 'text-white', light: 'bg-pink-500/30' },
-  { bg: 'bg-orange-500', text: 'text-white', light: 'bg-orange-500/30' },
-  { bg: 'bg-cyan-500', text: 'text-white', light: 'bg-cyan-500/30' },
-  { bg: 'bg-red-500', text: 'text-white', light: 'bg-red-500/30' },
-  { bg: 'bg-yellow-500', text: 'text-black', light: 'bg-yellow-500/30' },
-  { bg: 'bg-indigo-500', text: 'text-white', light: 'bg-indigo-500/30' },
-  { bg: 'bg-teal-500', text: 'text-white', light: 'bg-teal-500/30' },
-];
 
 const RESTAURANTS = [
   { id: 'quinze-ous', nom: 'Quinze Ous', color: 'orange' },
@@ -88,8 +73,6 @@ const defaultFestius = [
   { nom: "Sant Esteve", data: "2026-12-26", actiu: true }
 ];
 
-const defaultHorariBase = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
-
 const defaultState = {
   year: 2026,
   selectedWorker: null,
@@ -97,7 +80,6 @@ const defaultState = {
   currentRestaurant: 'quinze-ous',
   workers: [],
   workerEventsByYear: {},
-  horarisSetmanals: {},
   config: {
     'quinze-ous': {
       diesConveni: 23,
@@ -171,17 +153,14 @@ function App() {
         }
         if (!parsed.workerEventsByYear) parsed.workerEventsByYear = {};
         delete parsed.workerEvents;
-        if (!parsed.horarisSetmanals) parsed.horarisSetmanals = {};
         if (parsed.workers) {
           parsed.workers = parsed.workers.map(w => ({
             ...w,
             dataInici: w.dataInici || null,
             diesAnyAnterior: w.diesAnyAnterior || 0,
-            horariBase: w.horariBase || JSON.parse(JSON.stringify(defaultHorariBase)),
             souBrut: w.souBrut || 0,
             souNet: w.souNet || 0,
             extraB: w.extraB || 0,
-            eurosHora: w.eurosHora || 0,
             anotacionsSou: w.anotacionsSou || '',
             rol: w.rol || 'sala'
           }));
@@ -195,7 +174,6 @@ function App() {
           currentRestaurant: parsed.currentRestaurant || 'quinze-ous',
           workers: parsed.workers,
           workerEventsByYear: parsed.workerEventsByYear,
-          horarisSetmanals: parsed.horarisSetmanals,
           config: parsed.config
         };
       } catch (e) {
@@ -212,11 +190,6 @@ function App() {
   const [calendarView, setCalendarView] = useState('individual');
   const [selectedRestaurants, setSelectedRestaurants] = useState(['quinze-ous', 'quina-barra', 'malespina', 'caterings']);
   const [editingWorker, setEditingWorker] = useState(null);
-  const [editingHorari, setEditingHorari] = useState(false);
-  const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
-  const [editingCell, setEditingCell] = useState(null); // { workerId, dateStr }
-  const [showAddWorkerToWeek, setShowAddWorkerToWeek] = useState(false);
-  const [weekWorkers, setWeekWorkers] = useState([]); // Treballadors afegits a la setmana per aquest restaurant
   
   const currentConfig = state.config[state.currentRestaurant] || defaultState.config['quinze-ous'];
   const currentYearEvents = state.workerEventsByYear[state.year] || {};
@@ -225,47 +198,13 @@ function App() {
     localStorage.setItem('vacancesGrupQuinzeOus_v5', JSON.stringify(state));
   }, [state]);
   
-  // Actualitzar weekWorkers quan canvia la setmana O el restaurant
-  useEffect(() => {
-    const weekDates = getWeekDates(currentWeekOffset);
-    const weekKey = getWeekKey(weekDates[0]);
-    const restaurantKey = state.currentRestaurant;
-    // Guardem per restaurant: __weekWorkers_quinze-ous, __weekWorkers_quina-barra, etc.
-    const savedWeekWorkers = state.horarisSetmanals[weekKey]?.[`__weekWorkers_${restaurantKey}`] || [];
-    setWeekWorkers(savedWeekWorkers);
-  }, [currentWeekOffset, state.currentRestaurant, state.horarisSetmanals]);
-  
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2000);
   };
 
-  const getWeekDates = (offset = 0) => {
-    const today = new Date();
-    const currentDay = today.getDay();
-    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + mondayOffset + (offset * 7));
-    const dates = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      dates.push(d);
-    }
-    return dates;
-  };
-
   const formatDate = (date) => {
     return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
-  };
-
-  const getWeekKey = (date) => {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
-    const week1 = new Date(d.getFullYear(), 0, 4);
-    const weekNum = 1 + Math.round(((d - week1) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
-    return d.getFullYear() + '-W' + String(weekNum).padStart(2, '0');
   };
 
   const isDiaLaborable = (dateStr) => {
@@ -328,29 +267,6 @@ function App() {
     return festius.find(f => f.data.substring(5) === mesDia);
   };
 
-  // Calcular hores d'un torn
-  const calcularHoresTorn = (torn) => {
-    if (!torn.inici || !torn.fi) return 0;
-    const [h1, m1] = torn.inici.split(':').map(Number);
-    const [h2, m2] = torn.fi.split(':').map(Number);
-    let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
-    if (mins < 0) mins += 24 * 60; // Si passa mitjanit
-    return mins / 60;
-  };
-
-  // Calcular hores setmanals base d'un treballador
-  const calcularHoresSetmanalsBase = (worker) => {
-    if (!worker.horariBase) return 0;
-    let total = 0;
-    for (let dia = 0; dia < 7; dia++) {
-      const torns = worker.horariBase[dia] || [];
-      torns.forEach(torn => {
-        total += calcularHoresTorn(torn);
-      });
-    }
-    return total;
-  };
-
   const getWorkerStats = (workerId) => {
     const worker = state.workers.find(w => w.id === workerId);
     if (!worker) return { diesConveni: 0, diesProporcionals: 0, festiusTotals: 0, festiusTreballats: 0, oberturesExc: 0, totalDies: 0, tancamentDies: 0, vacances: 0, festiusRecuperats: 0, baixes: 0, pendents: 0, diesAnyAnterior: 0, recAnyAnterior: 0, pendentsAnyAnterior: 0 };
@@ -390,100 +306,6 @@ function App() {
     return { diesConveni: config.diesConveni, diesProporcionals, festiusTotals, festiusTreballats, oberturesExc, totalDies, tancamentDies, vacances, festiusRecuperats, baixes, pendents, diesAnyAnterior, recAnyAnterior, pendentsAnyAnterior };
   };
 
-  const getWorkerHorariForDate = (workerId, dateStr, forRestaurant = null) => {
-    const worker = state.workers.find(w => w.id === workerId);
-    if (!worker) return [];
-    const weekKey = getWeekKey(new Date(dateStr));
-    const restaurantToCheck = forRestaurant || state.currentRestaurant;
-    
-    // Si el treballador és d'un altre restaurant (és un extra), buscar horari específic per aquest restaurant
-    if (worker.restaurant !== restaurantToCheck) {
-      // Buscar horari específic guardat per aquest extra en aquest restaurant
-      const extraKey = `${workerId}_extra_${restaurantToCheck}`;
-      if (state.horarisSetmanals[weekKey]?.[extraKey]?.[dateStr]) {
-        return state.horarisSetmanals[weekKey][extraKey][dateStr];
-      }
-      // Si no té horari específic, retornar buit (l'extra no té horari base aquí)
-      return [];
-    }
-    
-    // Treballador del propi restaurant - mirar si té horari específic aquesta setmana
-    if (state.horarisSetmanals[weekKey]?.[workerId]?.[dateStr]) {
-      return state.horarisSetmanals[weekKey][workerId][dateStr];
-    }
-    // Si no, usar horari base
-    const parts = dateStr.split('-');
-    const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-    const dayOfWeek = (date.getDay() + 6) % 7;
-    return worker.horariBase?.[dayOfWeek] || [];
-  };
-
-  const updateHorariBase = (workerId, dayIndex, horaris) => {
-    setState(s => ({
-      ...s,
-      workers: s.workers.map(w => {
-        if (w.id === workerId) {
-          const newHorariBase = { ...w.horariBase };
-          newHorariBase[dayIndex] = horaris;
-          return { ...w, horariBase: newHorariBase };
-        }
-        return w;
-      })
-    }));
-  };
-
-  const updateHorariSetmanal = (weekKey, workerId, dateStr, horaris) => {
-    const worker = state.workers.find(w => w.id === workerId);
-    const isExtra = worker && worker.restaurant !== state.currentRestaurant;
-    // Si és un extra, guardar amb clau específica per restaurant
-    const storageKey = isExtra ? `${workerId}_extra_${state.currentRestaurant}` : workerId;
-    
-    setState(s => {
-      const newHorarisSetmanals = { ...s.horarisSetmanals };
-      if (!newHorarisSetmanals[weekKey]) newHorarisSetmanals[weekKey] = {};
-      if (!newHorarisSetmanals[weekKey][storageKey]) newHorarisSetmanals[weekKey][storageKey] = {};
-      newHorarisSetmanals[weekKey][storageKey][dateStr] = horaris;
-      return { ...s, horarisSetmanals: newHorarisSetmanals };
-    });
-  };
-
-  const addWorkerToWeek = (workerId) => {
-    const weekDates = getWeekDates(currentWeekOffset);
-    const weekKey = getWeekKey(weekDates[0]);
-    const restaurantKey = state.currentRestaurant;
-    const newWeekWorkers = [...weekWorkers, workerId];
-    setWeekWorkers(newWeekWorkers);
-    setState(s => {
-      const newHorarisSetmanals = { ...s.horarisSetmanals };
-      if (!newHorarisSetmanals[weekKey]) newHorarisSetmanals[weekKey] = {};
-      newHorarisSetmanals[weekKey][`__weekWorkers_${restaurantKey}`] = newWeekWorkers;
-      return { ...s, horarisSetmanals: newHorarisSetmanals };
-    });
-    setShowAddWorkerToWeek(false);
-  };
-
-  const removeWorkerFromWeek = (workerId) => {
-    const weekDates = getWeekDates(currentWeekOffset);
-    const weekKey = getWeekKey(weekDates[0]);
-    const restaurantKey = state.currentRestaurant;
-    const newWeekWorkers = weekWorkers.filter(id => id !== workerId);
-    setWeekWorkers(newWeekWorkers);
-    setState(s => {
-      const newHorarisSetmanals = { ...s.horarisSetmanals };
-      if (newHorarisSetmanals[weekKey]) {
-        newHorarisSetmanals[weekKey][`__weekWorkers_${restaurantKey}`] = newWeekWorkers;
-        // Esborrar els horaris d'aquest treballador per aquest restaurant
-        const workerHorariKey = `${workerId}_${restaurantKey}`;
-        Object.keys(newHorarisSetmanals[weekKey]).forEach(key => {
-          if (key.startsWith(workerId) && !key.startsWith('__')) {
-            delete newHorarisSetmanals[weekKey][key];
-          }
-        });
-      }
-      return { ...s, horarisSetmanals: newHorarisSetmanals };
-    });
-  };
-
   const exportToExcel = () => {
     let csv = 'RESUM VACANCES ' + state.year + '\n\n';
     csv += 'Restaurant,Treballador,Data Inici,Dies Conveni,Dies Proporcionals,Festius Treb.,Obert. Exc.,Total,Tancaments,Vacances,Pendents,Dies Any Ant.,Rec. Any Ant.,Pend. Any Ant.\n';
@@ -517,7 +339,7 @@ function App() {
     const id = 'w_' + Date.now();
     setState(s => ({
       ...s,
-      workers: [...s.workers, { id, nom: newWorkerName.trim(), restaurant: s.currentRestaurant, dataInici: null, diesAnyAnterior: 0, horariBase: JSON.parse(JSON.stringify(defaultHorariBase)), souBrut: 0, souNet: 0, extraB: 0, eurosHora: 0, anotacionsSou: '', rol: 'sala' }]
+      workers: [...s.workers, { id, nom: newWorkerName.trim(), restaurant: s.currentRestaurant, dataInici: null, diesAnyAnterior: 0, souBrut: 0, souNet: 0, extraB: 0, anotacionsSou: '', rol: 'sala' }]
     }));
     setNewWorkerName('');
     showToast('Treballador afegit!');
@@ -612,113 +434,10 @@ function App() {
     }));
   };
 
-  // Component editor de cel·la d'horari
-  const CellEditor = ({ workerId, dateStr, onClose }) => {
-    const weekKey = getWeekKey(new Date(dateStr));
-    const worker = state.workers.find(w => w.id === workerId);
-    const isExtra = worker && worker.restaurant !== state.currentRestaurant;
-    const currentHoraris = getWorkerHorariForDate(workerId, dateStr);
-    const [horaris, setHoraris] = useState(currentHoraris);
-    const [newInici, setNewInici] = useState('');
-    const [newFi, setNewFi] = useState('');
-
-    const addTorn = () => {
-      if (newInici && newFi) {
-        setHoraris([...horaris, { inici: newInici, fi: newFi }]);
-        setNewInici('');
-        setNewFi('');
-      }
-    };
-
-    const removeTorn = (index) => {
-      setHoraris(horaris.filter((_, i) => i !== index));
-    };
-
-    const save = () => {
-      updateHorariSetmanal(weekKey, workerId, dateStr, horaris);
-      onClose();
-      showToast('Horari guardat!');
-    };
-
-    const reset = () => {
-      // Esborrar horari específic per usar el base
-      const storageKey = isExtra ? `${workerId}_extra_${state.currentRestaurant}` : workerId;
-      setState(s => {
-        const newHorarisSetmanals = { ...s.horarisSetmanals };
-        if (newHorarisSetmanals[weekKey]?.[storageKey]?.[dateStr]) {
-          delete newHorarisSetmanals[weekKey][storageKey][dateStr];
-        }
-        return { ...s, horarisSetmanals: newHorarisSetmanals };
-      });
-      onClose();
-      showToast('Horari reset!');
-    };
-
-    return (
-      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={onClose}>
-        <div className="bg-zinc-800 rounded-lg p-4 w-80" onClick={e => e.stopPropagation()}>
-          <h3 className="font-semibold mb-3">Editar horari</h3>
-          <p className="text-sm text-zinc-400 mb-3">
-            {worker?.nom} - {dateStr}
-            {isExtra && <span className="text-yellow-400 ml-2">(Extra)</span>}
-          </p>
-          
-          <div className="space-y-2 mb-3">
-            {horaris.map((torn, i) => (
-              <div key={i} className="flex items-center gap-2 bg-zinc-700 rounded px-2 py-1">
-                <span className="text-sm flex-1">{torn.inici} - {torn.fi}</span>
-                <button onClick={() => removeTorn(i)} className="text-red-400 text-xs">X</button>
-              </div>
-            ))}
-            {horaris.length === 0 && <p className="text-zinc-500 text-sm">Sense horari (lliure)</p>}
-          </div>
-          
-          <div className="flex gap-1 mb-4">
-            <input type="time" value={newInici} onChange={e => setNewInici(e.target.value)} className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-sm" />
-            <input type="time" value={newFi} onChange={e => setNewFi(e.target.value)} className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-sm" />
-            <button onClick={addTorn} className="bg-green-600 px-3 py-1 rounded text-sm">+</button>
-          </div>
-          
-          <div className="flex gap-2">
-            <button onClick={save} className="flex-1 bg-orange-500 py-2 rounded font-medium">Guardar</button>
-            <button onClick={reset} className="flex-1 bg-zinc-600 py-2 rounded">Reset</button>
-            <button onClick={onClose} className="flex-1 bg-zinc-700 py-2 rounded">Tancar</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Component per editar horari base
-  const HorariDiaEditor = ({ horaris, onChange, label }) => {
-    const [newInici, setNewInici] = useState('');
-    const [newFi, setNewFi] = useState('');
-    const addTorn = () => {
-      if (newInici && newFi) {
-        onChange([...horaris, { inici: newInici, fi: newFi }]);
-        setNewInici('');
-        setNewFi('');
-      }
-    };
-    const removeTorn = (index) => onChange(horaris.filter((_, i) => i !== index));
-    
-    return (
-      <div className="space-y-1">
-        <div className="text-xs text-zinc-400 font-medium">{label}</div>
-        {horaris.map((torn, i) => (
-          <div key={i} className="flex items-center gap-2 bg-zinc-800 rounded px-2 py-1">
-            <span className="text-xs flex-1">{torn.inici} - {torn.fi}</span>
-            <button onClick={() => removeTorn(i)} className="text-red-400 text-xs">X</button>
-          </div>
-        ))}
-        <div className="flex gap-1">
-          <input type="time" value={newInici} onChange={e => setNewInici(e.target.value)} className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-xs" />
-          <input type="time" value={newFi} onChange={e => setNewFi(e.target.value)} className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-xs" />
-          <button onClick={addTorn} className="bg-green-600 px-2 py-0.5 rounded text-xs">+</button>
-        </div>
-      </div>
-    );
-  };
+  const selectedWorkerData = state.workers.find(w => w.id === state.selectedWorker);
+  const stats = state.selectedWorker ? getWorkerStats(state.selectedWorker) : null;
+  const filteredWorkers = state.workers.filter(w => w.restaurant === state.currentRestaurant);
+  const currentRestaurantName = RESTAURANTS.find(r => r.id === state.currentRestaurant)?.nom || '';
 
   const renderMonth = (month) => {
     const year = state.year;
@@ -825,326 +544,10 @@ function App() {
     );
   };
 
-  const renderHorarisView = () => {
-    const weekDates = getWeekDates(currentWeekOffset);
-    const weekKey = getWeekKey(weekDates[0]);
-    const filteredWorkers = state.workers.filter(w => w.restaurant === state.currentRestaurant);
-    
-    // Treballadors del restaurant + extres afegits d'altres restaurants
-    const extraWorkerIds = weekWorkers.filter(id => !filteredWorkers.find(w => w.id === id));
-    const extraWorkers = extraWorkerIds.map(id => state.workers.find(w => w.id === id)).filter(Boolean);
-    const allWorkers = ordenarPerRol([...filteredWorkers, ...extraWorkers]);
-    
-    // Treballadors disponibles per afegir (d'altres restaurants que no estan ja afegits)
-    const availableToAddOtherRestaurants = ordenarPerRol(state.workers.filter(w => {
-      return w.restaurant !== state.currentRestaurant && !weekWorkers.includes(w.id);
-    }));
-    
-    const firstDate = weekDates[0];
-    const lastDate = weekDates[6];
-    const weekLabel = `${firstDate.getDate()}/${firstDate.getMonth() + 1} - ${lastDate.getDate()}/${lastDate.getMonth() + 1}/${lastDate.getFullYear()}`;
-    
-    // Funció per buscar si un treballador fa extra a un altre restaurant aquell dia
-    const getExtraInfo = (workerId, dateStr) => {
-      const worker = state.workers.find(w => w.id === workerId);
-      if (!worker) return null;
-      
-      // Buscar a tots els altres restaurants si aquest treballador té horari com a extra
-      for (const rest of RESTAURANTS) {
-        if (rest.id === worker.restaurant) continue; // Saltar el seu propi restaurant
-        
-        const extraKey = `${workerId}_extra_${rest.id}`;
-        const weekWorkersKey = `__weekWorkers_${rest.id}`;
-        
-        // Comprovar si està afegit com a extra a aquest restaurant aquesta setmana
-        const isExtraAtRest = state.horarisSetmanals[weekKey]?.[weekWorkersKey]?.includes(workerId);
-        
-        if (isExtraAtRest) {
-          // Té horari assignat aquell dia?
-          const horariExtra = state.horarisSetmanals[weekKey]?.[extraKey]?.[dateStr];
-          if (horariExtra && horariExtra.length > 0) {
-            return { restaurant: rest.nom, horaris: horariExtra };
-          }
-        }
-      }
-      return null;
-    };
-    
-    // Funció per obtenir color d'un treballador
-    const getWorkerColor = (index) => WORKER_COLORS[index % WORKER_COLORS.length];
-    
-    // Funció per convertir hora a posició percentual (8:00 = 0%, 24:00 = 100%)
-    const horaToPercent = (hora) => {
-      const [h, m] = hora.split(':').map(Number);
-      const totalMins = h * 60 + m;
-      const startMins = 8 * 60; // 8:00
-      const endMins = 24 * 60; // 24:00
-      return Math.max(0, Math.min(100, ((totalMins - startMins) / (endMins - startMins)) * 100));
-    };
-    
-    // Obtenir el restaurant d'origen d'un treballador extra
-    const getWorkerRestaurant = (workerId) => {
-      const worker = state.workers.find(w => w.id === workerId);
-      if (worker && worker.restaurant !== state.currentRestaurant) {
-        const rest = RESTAURANTS.find(r => r.id === worker.restaurant);
-        return rest ? rest.nom : '';
-      }
-      return '';
-    };
-    
-    return (
-      <div className="print-area">
-        <div className="flex justify-between items-center mb-4 no-print">
-          <h1 className="text-2xl font-bold">Horaris Setmanals</h1>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setCurrentWeekOffset(currentWeekOffset - 1)} className="w-8 h-8 rounded bg-zinc-800 border border-zinc-700">&lt;</button>
-            <span className="font-mono text-sm">{weekLabel}</span>
-            <button onClick={() => setCurrentWeekOffset(currentWeekOffset + 1)} className="w-8 h-8 rounded bg-zinc-800 border border-zinc-700">&gt;</button>
-            <button onClick={() => setCurrentWeekOffset(0)} className="bg-zinc-700 px-3 py-1 rounded text-sm">Avui</button>
-            <button onClick={handlePrint} className="bg-blue-600 px-3 py-1 rounded text-sm ml-2">Imprimir</button>
-          </div>
-        </div>
-        
-        <div className="print-only hidden mb-4">
-          <h1 className="text-xl font-bold">{currentRestaurantName} - Horaris {weekLabel}</h1>
-        </div>
-        
-        {/* Llegenda de treballadors */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {allWorkers.map((worker, index) => {
-            const color = getWorkerColor(index);
-            const fromRestaurant = getWorkerRestaurant(worker.id);
-            return (
-              <div key={worker.id} className={'flex items-center gap-1 px-2 py-1 rounded text-xs ' + color.bg + ' ' + color.text}>
-                <span>{worker.nom}</span>
-                {fromRestaurant && <span className="opacity-75">({fromRestaurant})</span>}
-              </div>
-            );
-          })}
-        </div>
-        
-        {/* Graella d'horaris */}
-        <div className="bg-zinc-900 rounded-lg overflow-hidden">
-          {/* Capçalera amb dies */}
-          <div className="grid grid-cols-7 border-b border-zinc-700">
-            {weekDates.map((date, i) => (
-              <div key={i} className="p-3 bg-zinc-800 text-center border-l border-zinc-700 first:border-l-0">
-                <div className="font-bold text-sm">{DAYS_SHORT[i]}</div>
-                <div className="text-xs text-zinc-400">{date.getDate()}/{date.getMonth() + 1}</div>
-              </div>
-            ))}
-          </div>
-          
-          {/* Escala horària */}
-          <div className="grid grid-cols-7">
-            {weekDates.map((date, dayIndex) => {
-              const dateStr = formatDate(date);
-              return (
-                <div key={dayIndex} className="border-l border-zinc-800 first:border-l-0 h-[500px] relative bg-zinc-900">
-                  {/* Línies horàries de fons - de 6:00 a 02:00 (20 hores) */}
-                  {[6,8,10,12,14,16,18,20,22,24,26].map(hora => (
-                    <div key={hora} className="absolute w-full border-t border-zinc-800/50" style={{ top: `${((hora - 6) / 20) * 100}%` }}>
-                      <span className="text-[9px] text-zinc-600 absolute -top-2 left-1">{hora > 24 ? (hora - 24) + ':00' : hora + ':00'}</span>
-                    </div>
-                  ))}
-                  
-                  {/* Barres dels treballadors */}
-                  {allWorkers.map((worker, workerIndex) => {
-                    const horaris = getWorkerHorariForDate(worker.id, dateStr);
-                    const color = getWorkerColor(workerIndex);
-                    const isExtra = worker.restaurant !== state.currentRestaurant;
-                    const storageKey = isExtra ? `${worker.id}_extra_${state.currentRestaurant}` : worker.id;
-                    const hasCustom = state.horarisSetmanals[weekKey]?.[storageKey]?.[dateStr];
-                    
-                    return horaris.map((torn, tornIndex) => {
-                      // Convertir hora a minuts des de les 6:00
-                      const horaIniciToMins = (h) => {
-                        const [hh, mm] = h.split(':').map(Number);
-                        let mins = hh * 60 + mm;
-                        if (hh < 6) mins += 24 * 60; // Si és després de mitjanit
-                        return mins - 6 * 60; // Relatiu a les 6:00
-                      };
-                      
-                      const startMins = horaIniciToMins(torn.inici);
-                      let endMins = horaIniciToMins(torn.fi);
-                      if (endMins <= startMins) endMins += 24 * 60; // Si acaba després de mitjanit
-                      
-                      const totalMins = 20 * 60; // 20 hores (6:00 a 02:00)
-                      const topPercent = (startMins / totalMins) * 100;
-                      const height = ((endMins - startMins) / totalMins) * 100;
-                      
-                      // Calcular posició horitzontal segons nombre de treballadors
-                      const numWorkers = allWorkers.length;
-                      const barWidth = Math.min(90 / numWorkers, 15);
-                      const leftPos = 5 + (workerIndex * (90 / numWorkers));
-                      
-                      return (
-                        <div
-                          key={`${worker.id}-${tornIndex}`}
-                          onClick={(e) => { e.stopPropagation(); setEditingCell({ workerId: worker.id, dateStr }); }}
-                          className={'absolute cursor-pointer rounded text-[9px] flex flex-col items-center justify-center overflow-hidden ' + color.bg + ' ' + color.text + (hasCustom ? ' ring-2 ring-white/50' : '')}
-                          style={{
-                            top: `${topPercent}%`,
-                            height: `${Math.max(height, 4)}%`,
-                            left: `${leftPos}%`,
-                            width: `${barWidth}%`,
-                            minHeight: '25px'
-                          }}
-                          title={`${worker.nom}: ${torn.inici}-${torn.fi}`}
-                        >
-                          <span className="font-bold">{torn.inici}</span>
-                          <span className="opacity-75">{torn.fi}</span>
-                        </div>
-                      );
-                    });
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        
-        {/* Vista alternativa: taula clàssica */}
-        <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-3">Vista detallada</h2>
-          <div className="bg-zinc-900 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-8 border-b border-zinc-700">
-              <div className="p-3 bg-zinc-800 font-medium text-sm">Treballador</div>
-              {weekDates.map((date, i) => (
-                <div key={i} className="p-2 bg-zinc-800 text-center border-l border-zinc-700">
-                  <div className="font-medium text-xs">{DAYS_SHORT[i]}</div>
-                  <div className="text-[10px] text-zinc-400">{date.getDate()}/{date.getMonth() + 1}</div>
-                </div>
-              ))}
-            </div>
-            
-            {allWorkers.length === 0 ? (
-              <div className="p-8 text-center text-zinc-500">No hi ha treballadors amb horari</div>
-            ) : (
-              <>
-                {ROLS.map(rol => {
-                  const workersDelRol = allWorkers.filter(w => w.rol === rol.id);
-                  if (workersDelRol.length === 0) return null;
-                  
-                  return (
-                    <React.Fragment key={rol.id}>
-                      {/* Capçalera del rol */}
-                      <div className={'grid grid-cols-8 ' + rol.bg}>
-                        <div className={'p-1 px-3 font-bold text-xs uppercase tracking-wider col-span-8 ' + rol.color}>
-                          {rol.nom} ({workersDelRol.length})
-                        </div>
-                      </div>
-                      
-                      {/* Treballadors d'aquest rol */}
-                      {workersDelRol.map((worker) => {
-                        const workerIndex = allWorkers.findIndex(w => w.id === worker.id);
-                        const isFromOtherRestaurant = worker.restaurant !== state.currentRestaurant;
-                        const color = getWorkerColor(workerIndex);
-                        const fromRestaurant = getWorkerRestaurant(worker.id);
-                        
-                        return (
-                          <div key={worker.id} className="grid grid-cols-8 border-b border-zinc-800">
-                            <div className={'p-2 font-medium text-sm flex items-center gap-2 ' + color.light}>
-                              <div className={'w-3 h-3 rounded-full ' + color.bg}></div>
-                              <div className="flex-1 min-w-0">
-                                <div className="truncate">{worker.nom}</div>
-                                {fromRestaurant && <div className="text-[10px] text-zinc-400 truncate">({fromRestaurant})</div>}
-                              </div>
-                              {(extraWorkerIds.includes(worker.id) || isFromOtherRestaurant) && (
-                                <button onClick={() => removeWorkerFromWeek(worker.id)} className="text-red-400 text-xs no-print flex-shrink-0">X</button>
-                              )}
-                            </div>
-                            {weekDates.map((date, i) => {
-                              const dateStr = formatDate(date);
-                              const horaris = getWorkerHorariForDate(worker.id, dateStr);
-                              const storageKeyForCheck = isFromOtherRestaurant ? `${worker.id}_extra_${state.currentRestaurant}` : worker.id;
-                              const hasCustom = state.horarisSetmanals[weekKey]?.[storageKeyForCheck]?.[dateStr];
-                              
-                              // Només per treballadors del propi restaurant, mirar si fan extra a un altre lloc
-                              const extraInfo = !isFromOtherRestaurant ? getExtraInfo(worker.id, dateStr) : null;
-                              
-                              return (
-                                <div 
-                                  key={i} 
-                                  onClick={() => setEditingCell({ workerId: worker.id, dateStr })}
-                                  className={'p-1 border-l border-zinc-800 min-h-[50px] cursor-pointer hover:bg-zinc-700/50 ' + (hasCustom ? 'bg-blue-900/20' : '') + (extraInfo ? ' bg-yellow-900/20' : '')}
-                                >
-                                  {horaris.length > 0 ? (
-                                    <div className="space-y-0.5">
-                                      {horaris.map((torn, ti) => (
-                                        <div key={ti} className={'text-[10px] rounded px-1 py-0.5 text-center ' + color.bg + ' ' + color.text}>
-                                          {torn.inici}-{torn.fi}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <div className="text-xs text-zinc-600 text-center">-</div>
-                                  )}
-                                  {extraInfo && (
-                                    <div className="mt-1 text-[9px] bg-yellow-500/30 text-yellow-300 rounded px-1 py-0.5 text-center" title={extraInfo.horaris.map(h => h.inici + '-' + h.fi).join(', ')}>
-                                      ➜ {extraInfo.restaurant}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </React.Fragment>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        </div>
-        
-        {/* Botons per afegir treballadors */}
-        <div className="mt-4 flex flex-wrap gap-2 no-print">
-          {availableToAddOtherRestaurants.length > 0 && (
-            <div className="relative">
-              <button 
-                onClick={() => setShowAddWorkerToWeek(!showAddWorkerToWeek)}
-                className="bg-green-600 px-4 py-2 rounded text-sm font-medium"
-              >
-                + Afegir extra d'altre restaurant
-              </button>
-              {showAddWorkerToWeek && (
-                <div className="absolute left-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-10 min-w-[250px] max-h-[300px] overflow-y-auto">
-                  {availableToAddOtherRestaurants.map(w => {
-                    const rest = RESTAURANTS.find(r => r.id === w.restaurant);
-                    return (
-                      <button
-                        key={w.id}
-                        onClick={() => addWorkerToWeek(w.id)}
-                        className="block w-full text-left px-4 py-2 hover:bg-zinc-700 text-sm"
-                      >
-                        {w.nom} <span className="text-zinc-500 text-xs">({rest?.nom})</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-          <div className="text-sm text-zinc-500 flex items-center gap-2">
-            <span className="inline-block w-3 h-3 bg-white/30 rounded ring-2 ring-white/50"></span>
-            Horari modificat aquesta setmana
-          </div>
-          <div className="text-sm text-zinc-500 flex items-center gap-2">
-            <span className="inline-block w-3 h-3 bg-yellow-500/30 rounded"></span>
-            Fa extra a un altre restaurant
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const selectedWorkerData = state.workers.find(w => w.id === state.selectedWorker);
   const stats = state.selectedWorker ? getWorkerStats(state.selectedWorker) : null;
   const filteredWorkers = state.workers.filter(w => w.restaurant === state.currentRestaurant);
   const currentRestaurantName = RESTAURANTS.find(r => r.id === state.currentRestaurant)?.nom || '';
-  const horesSetmanalsBase = selectedWorkerData ? calcularHoresSetmanalsBase(selectedWorkerData) : 0;
 
   return (
     <div className="min-h-screen bg-black text-white flex">
@@ -1159,8 +562,42 @@ function App() {
         </select>
         
         <div className="flex gap-1 bg-zinc-800 p-1 rounded-lg">
+          <button className="flex-1 py-2 px-2 rounded text-xs font-medium transition bg-orange-500 text-white">Calendari</button>
+          <button onClick={() => setView('config')} className={'flex-1 py-2 px-2 rounded text-xs font-medium transition ' + (view === 'config' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Config</button>
+        </div>
+        
+        <div className="flex-1 flex flex-col gap-2 overflow-hidden">
+          <div className="text-xs text-zinc-500 uppercase tracking-wider">Treballadors ({filteredWorkers.length})</div>
+          <div className="flex-1 overflow-y-auto space-y-1">
+            {ordenarPerRol(filteredWorkers).map(w => {
+              const wStats = getWorkerStats(w.id);
+              const rol = ROLS.find(r => r.id === w.rol);
+              return (
+                <div key={w.id} onClick={() => setState(s => ({ ...s, selectedWorker: w.id }))} className={'p-2 rounded-lg cursor-pointer flex justify-between items-center text-sm transition ' + (state.selectedWorker === w.id ? 'bg-orange-500' : 'hover:bg-zinc-800')}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={'text-[10px] px-1 rounded ' + (rol?.bg || '')}>{rol?.nom?.charAt(0) || 'S'}</span>
+                    <span className="truncate">{w.nom}</span>
+                  </div>
+                  <span className="text-xs bg-white/10 px-2 py-0.5 rounded font-mono flex-shrink-0">{wStats.pendents}d</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <input type="text" value={newWorkerName} onChange={e => setNewWorkerName(e.target.value)} onKeyPress={e => e.key === 'Enter' && addWorker()} placeholder="Nom treballador..." className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm" />
+            <button onClick={addWorker} className="bg-orange-500 px-3 py-2 rounded font-semibold">+</button>
+          </div>
+        </div>
+      </div>
+      
+      {/* Contingut principal */}
+      <div className="flex-1 p-6 overflow-y-auto">
+        {view === 'config' ? (
+          {RESTAURANTS.map(r => (<option key={r.id} value={r.id}>{r.nom}</option>))}
+        </select>
+        
+        <div className="flex gap-1 bg-zinc-800 p-1 rounded-lg">
           <button onClick={() => setView('calendar')} className={'flex-1 py-2 px-2 rounded text-xs font-medium transition ' + (view === 'calendar' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Calendari</button>
-          <button onClick={() => setView('horaris')} className={'flex-1 py-2 px-2 rounded text-xs font-medium transition ' + (view === 'horaris' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Horaris</button>
           <button onClick={() => setView('config')} className={'flex-1 py-2 px-2 rounded text-xs font-medium transition ' + (view === 'config' ? 'bg-orange-500 text-white' : 'text-zinc-400')}>Config</button>
         </div>
         
@@ -1237,8 +674,6 @@ function App() {
               {Array.from({ length: 12 }, (_, i) => calendarView === 'individual' ? renderMonth(i) : renderMonthGeneral(i))}
             </div>
           </>
-        ) : view === 'horaris' ? (
-          renderHorarisView()
         ) : (
           <>
             <h1 className="text-2xl font-bold mb-2">Configuracio {state.year}</h1>
@@ -1419,40 +854,6 @@ function App() {
               </div>
             )}
             
-            {/* HORARI BASE - editable o només lectura */}
-            <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3 mb-4">
-              <h3 className="text-xs uppercase text-blue-400 tracking-wider mb-2">Horari Base Setmanal</h3>
-              {editingWorker ? (
-                <div className="space-y-3">
-                  {DAYS_FULL.map((day, i) => (
-                    <HorariDiaEditor key={i} label={day} horaris={selectedWorkerData?.horariBase?.[i] || []} onChange={(h) => updateHorariBase(state.selectedWorker, i, h)} />
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {DAYS_FULL.map((day, i) => {
-                    const torns = selectedWorkerData?.horariBase?.[i] || [];
-                    if (torns.length === 0) return null;
-                    return (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span className="text-zinc-400">{day}:</span>
-                        <span className="text-blue-300">{torns.map(t => t.inici + '-' + t.fi).join(', ')}</span>
-                      </div>
-                    );
-                  })}
-                  {Object.values(selectedWorkerData?.horariBase || {}).every(t => t.length === 0) && (
-                    <p className="text-zinc-500 text-sm">Sense horari definit</p>
-                  )}
-                </div>
-              )}
-              <div className="mt-3 pt-3 border-t border-blue-800">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-blue-300">Total hores setmanals:</span>
-                  <span className="text-xl font-bold text-blue-400">{horesSetmanalsBase.toFixed(1)}h</span>
-                </div>
-              </div>
-            </div>
-            
             {/* INFORMACIÓ SALARIAL - editable o només lectura */}
             <div className="bg-emerald-900/30 border border-emerald-800 rounded-lg p-3 mb-4">
               <h3 className="text-xs uppercase text-emerald-400 tracking-wider mb-2">Informació Salarial</h3>
@@ -1479,13 +880,6 @@ function App() {
                       <span className="text-zinc-500">€/mes</span>
                     </div>
                   </div>
-                  <div className="border-t border-emerald-800 pt-3">
-                    <label className="text-xs text-zinc-400">€/hora net (si cobra per hores)</label>
-                    <div className="flex items-center gap-2 mt-1">
-                      <input type="number" step="0.01" value={selectedWorkerData?.eurosHora || ''} onChange={e => updateWorker(state.selectedWorker, 'eurosHora', parseFloat(e.target.value) || 0)} placeholder="0.00" className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
-                      <span className="text-zinc-500">€/h</span>
-                    </div>
-                  </div>
                   <div>
                     <label className="text-xs text-zinc-400">Anotacions</label>
                     <textarea value={selectedWorkerData?.anotacionsSou || ''} onChange={e => updateWorker(state.selectedWorker, 'anotacionsSou', e.target.value)} placeholder="Notes sobre el sou..." className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm mt-1 h-20 resize-none" />
@@ -1496,24 +890,17 @@ function App() {
                   {(selectedWorkerData?.souBrut > 0) && <div className="flex justify-between text-sm"><span className="text-zinc-400">Sou Brut:</span><span className="text-emerald-300">{(selectedWorkerData?.souBrut || 0).toFixed(2)}€/mes</span></div>}
                   {(selectedWorkerData?.souNet > 0) && <div className="flex justify-between text-sm"><span className="text-zinc-400">Sou Net:</span><span className="text-emerald-300">{(selectedWorkerData?.souNet || 0).toFixed(2)}€/mes</span></div>}
                   {(selectedWorkerData?.extraB > 0) && <div className="flex justify-between text-sm"><span className="text-zinc-400">Extra B:</span><span className="text-emerald-300">{(selectedWorkerData?.extraB || 0).toFixed(2)}€/mes</span></div>}
-                  {(selectedWorkerData?.eurosHora > 0) && <div className="flex justify-between text-sm"><span className="text-zinc-400">€/hora:</span><span className="text-emerald-300">{(selectedWorkerData?.eurosHora || 0).toFixed(2)}€/h</span></div>}
                   {selectedWorkerData?.anotacionsSou && <div className="mt-2 text-xs text-zinc-400 bg-zinc-900/50 rounded p-2">{selectedWorkerData.anotacionsSou}</div>}
-                  {!selectedWorkerData?.souBrut && !selectedWorkerData?.souNet && !selectedWorkerData?.extraB && !selectedWorkerData?.eurosHora && <p className="text-zinc-500 text-sm">Sense informació salarial</p>}
+                  {!selectedWorkerData?.souBrut && !selectedWorkerData?.souNet && !selectedWorkerData?.extraB && <p className="text-zinc-500 text-sm">Sense informació salarial</p>}
                 </div>
               )}
               <div className="mt-3 pt-3 border-t border-emerald-800">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-emerald-300">Sou Total:</span>
                   <span className="text-xl font-bold text-emerald-400">
-                    {selectedWorkerData?.eurosHora > 0 
-                      ? (selectedWorkerData.eurosHora * horesSetmanalsBase * 4.33).toFixed(2) + '€/mes'
-                      : ((selectedWorkerData?.souNet || 0) + (selectedWorkerData?.extraB || 0)).toFixed(2) + '€/mes'
-                    }
+                    {((selectedWorkerData?.souNet || 0) + (selectedWorkerData?.extraB || 0)).toFixed(2)}€/mes
                   </span>
                 </div>
-                {selectedWorkerData?.eurosHora > 0 && (
-                  <div className="text-xs text-zinc-500 mt-1">({selectedWorkerData.eurosHora}€/h × {horesSetmanalsBase.toFixed(1)}h/set × 4.33 set/mes)</div>
-                )}
               </div>
             </div>
             
@@ -1536,11 +923,6 @@ function App() {
           </>
         )}
       </div>
-      
-      {/* Modal editor de cel·la */}
-      {editingCell && (
-        <CellEditor workerId={editingCell.workerId} dateStr={editingCell.dateStr} onClose={() => setEditingCell(null)} />
-      )}
       
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-500 text-black px-6 py-3 rounded-lg font-semibold no-print">{toast}</div>
