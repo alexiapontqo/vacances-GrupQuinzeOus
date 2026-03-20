@@ -82,7 +82,7 @@ const defaultState = {
   workerEventsByYear: {},
   config: {
     'quinze-ous': {
-      diesConveni: 23,
+      diesConveni: 22,
       tancaments: [
         { nom: "Setmana Febrer", inici: "2026-02-09", fi: "2026-02-15" },
         { nom: "Setmana Octubre", inici: "2026-10-05", fi: "2026-10-11" }
@@ -91,19 +91,19 @@ const defaultState = {
       oberturesExcepcionals: []
     },
     'quina-barra': {
-      diesConveni: 23,
+      diesConveni: 22,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius)),
       oberturesExcepcionals: []
     },
     'malespina': {
-      diesConveni: 23,
+      diesConveni: 22,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius)),
       oberturesExcepcionals: []
     },
     'caterings': {
-      diesConveni: 23,
+      diesConveni: 22,
       tancaments: [],
       festius: JSON.parse(JSON.stringify(defaultFestius)),
       oberturesExcepcionals: []
@@ -142,7 +142,7 @@ function App() {
         if (!parsed.config) parsed.config = JSON.parse(JSON.stringify(defaultState.config));
         RESTAURANTS.forEach(r => {
           if (!parsed.config[r.id]) {
-            parsed.config[r.id] = { diesConveni: 23, tancaments: [], festius: JSON.parse(JSON.stringify(defaultFestius)), oberturesExcepcionals: [] };
+            parsed.config[r.id] = { diesConveni: 22, tancaments: [], festius: JSON.parse(JSON.stringify(defaultFestius)), oberturesExcepcionals: [] };
           }
           if (!parsed.config[r.id].oberturesExcepcionals) parsed.config[r.id].oberturesExcepcionals = [];
           if (!parsed.config[r.id].tancaments) parsed.config[r.id].tancaments = [];
@@ -640,9 +640,9 @@ function App() {
             
             <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 mb-4">
               <h3 className="font-semibold mb-1">Dies de vacances per conveni</h3>
-              <p className="text-sm text-zinc-500 mb-3">Dies LABORABLES (Dt-Ds). 31 dies naturals = 23 laborables</p>
+              <p className="text-sm text-zinc-500 mb-3">Dies LABORABLES (Dt-Ds). 30 dies naturals = 22 laborables</p>
               <div className="flex items-center gap-3">
-                <input type="number" value={currentConfig.diesConveni} onChange={e => updateConfig('diesConveni', parseInt(e.target.value) || 23)} className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2" />
+                <input type="number" value={currentConfig.diesConveni} onChange={e => updateConfig('diesConveni', parseInt(e.target.value) || 22)} className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2" />
                 <span className="text-zinc-500 text-sm">dies laborables / any</span>
               </div>
             </div>
